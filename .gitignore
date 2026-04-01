@@ -3,9 +3,19 @@
 *.vcxproj.user
 *.suo
 .vs/
+UpgradeLog.htm
 
+# JetBrains / Rider IDE files
+.idea/
 
-# Local include headers
+# Cursor / VS Code IDE files
+.vscode/
+
+# Local package manager output (install locally — do not commit)
+vcpkg/
+vcpkg_installed/
+
+# Vendored headers / packaged dependencies should not live in this repo
 lib/include/
 
 # Prerequisites
@@ -36,10 +46,8 @@ lib/include/
 #*.a
 #*.lib
 
-# Executables
+# Executables / build output
 *.exe
 *.out
 *.app
-.vs/
 bin/
-
