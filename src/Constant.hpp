@@ -1,7 +1,7 @@
 #pragma once
 #include "stdafx.h"
 
-#define MY_PLUGIN_NAME			"VFPC (UK)"
+#define MY_PLUGIN_NAME			"VFPC"
 #define MY_PLUGIN_VERSION		"3.7.0.0"
 #define MY_PLUGIN_DEVELOPER		"Peter Richardson, Lenny Colton, Jan Fries, Hendrik Peter, Sven Czarnian"
 #define MY_PLUGIN_COPYRIGHT		"GPL v3"

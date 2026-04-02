@@ -43,3 +43,7 @@ lib/include/
 .vs/
 bin/
 
+# vcpkg
+vcpkg_installed/
+**/vcpkg_installed/
+**/vcpkg_installed/**
