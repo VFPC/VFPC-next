@@ -9,6 +9,7 @@
 #include "Log.h"
 #include "UrlData.h"
 #include "VersionInfo.h"
+#include "ConstraintChecks.hpp"
 #include "TimeWindow.h"
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
@@ -16,6 +17,7 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
 using namespace std;
 using namespace EuroScopePlugIn;
 using namespace std::chrono_literals; // Add this line to enable chrono literals
+using namespace ConstraintChecks;
 
 //==============================================================
 // 2. File-local utility helpers
@@ -1049,18 +1051,7 @@ vector<bool> CVFPCPlugin::checkDestination(const Value& conditions,
 		bool res = true;
 
 		const auto& cond = conditions[i];
-		const auto* nodestsArr = FindArrayMember(cond, "nodests");
-		if (nodestsArr && !nodestsArr->Empty()) {
-			if (destArrayContains(*nodestsArr, destination.c_str()).size()) {
-				res = false;
-			}
-		}
-		const auto* destsArr = FindArrayMember(cond, "dests");
-		if (destsArr && !destsArr->Empty()) {
-			if (!destArrayContains(*destsArr, destination.c_str()).size()) {
-				res = false;
-			}
-		}
+		res = checkOneDestination(cond, destination);
 		out.push_back(res);
 	}
 	return out;
@@ -1082,32 +1073,7 @@ vector<bool> CVFPCPlugin::checkExitPoint(const Value& conditions,
 		bool res = true;
 
 		const auto& cond = conditions[i];
-		const auto* pointsArr = FindArrayMember(cond, "points");
-		if (pointsArr && !pointsArr->Empty()) {
-			bool temp = false;
-			for (string each : points) {
-				if (arrayContainsString(*pointsArr, each)) {
-					temp = true;
-					break;
-				}
-			}
-			if (!temp) {
-				res = false;
-			}
-		}
-		const auto* nopointsArr = FindArrayMember(cond, "nopoints");
-		if (nopointsArr && !nopointsArr->Empty()) {
-			bool temp = false;
-			for (string each : points) {
-				if (arrayContainsString(*nopointsArr, each)) {
-					temp = true;
-					break;
-				}
-			}
-			if (temp) {
-				res = false;
-			}
-		}
+		res = checkOneExitPoint(cond, points);
 		out.push_back(res);
 	}
 	return out;
@@ -1134,19 +1100,7 @@ vector<bool> CVFPCPlugin::checkRoute(const Value& conditions,
 			continue;
 		}
 
-		const auto* routeArr = FindArrayMember(cond, "route");
-		if (routeArr && !routeArr->Empty()) {
-			if (!routeContains(route, *routeArr)) { // route from FP, routeArr from condition.
-				res = false;
-			}
-		}
-
-		const auto* norouteArr = FindArrayMember(cond, "noroute");
-		if (norouteArr && !norouteArr->Empty()) {
-			if (routeContains(route, *norouteArr)) {
-				res = false;
-			}
-		}
+		res = checkOneRoute(cond, route);
 
 		out.push_back(res);
 		LOG_TRACE("Route Check: Completed with {} result", BoolToString(res));
@@ -1168,29 +1122,13 @@ vector<bool> CVFPCPlugin::checkMinMax(const Value& conditions,
 
 		bool res = true;
 
-		int Min, Max;
-
 		const auto& condition = conditions[i];
 		if (!condition.IsObject()) {
 			out.push_back(false);
 			continue;
 		}
 
-		const auto* minObj = FindMemberValue(condition, "min");
-		if (minObj && minObj->IsInt()) {
-			if ((Min = minObj->GetInt()) > 0 && (RFL / 100) < Min) {
-				res = false;
-
-			}
-		}
-
-		//Max Level
-		const auto* maxObj = FindMemberValue(condition, "max");
-		if (maxObj && maxObj->IsInt()) {
-			if ((Max = maxObj->GetInt()) > 0 && (RFL / 100) > Max) {
-				res = false;
-			}
-		}
+		res = checkOneMinMax(condition, RFL);
 		out.push_back(res);
 	}
 	return out;
@@ -1213,6 +1151,11 @@ vector<bool> CVFPCPlugin::checkDirection(const Value& conditions,
 		bool res = true;
 
 		const auto& condition = conditions[i];
+		if (!condition.IsObject()) {
+			out.push_back(false);
+			continue;
+		}
+
 		const auto* dirObj = FindMemberValue(condition, "dir");
 		if (!dirObj || !dirObj->IsString()) {
 			out.push_back(res);
@@ -1222,33 +1165,7 @@ vector<bool> CVFPCPlugin::checkDirection(const Value& conditions,
 		string direction = dirObj->GetString();
 		direction = to_upper(direction);
 		LOG_TRACE("Direction Check: RFL={} dir='{}'", RFL, direction);
-		if (direction == EVEN_DIRECTION) {
-			//Assume invalid until condition matched
-			res = false;
-			//Non-RVSM (Above FL410)
-			if ((RFL > RVSM_UPPER && ((RFL - RVSM_UPPER) / 1000) % 4
-				== 2)) {
-
-				res = true;
-			}
-			//RVSM (FL290-410) or Below FL290
-			else if (RFL <= RVSM_UPPER && (RFL / 1000) % 2 == 0) {
-				res = true;
-			}
-		}
-		else if (direction == ODD_DIRECTION) {
-			//Assume invalid until condition matched
-			res = false;
-			//Non-RVSM (Above FL410)
-			if ((RFL > RVSM_UPPER && ((RFL - RVSM_UPPER) / 1000) % 4
-				== 0)) {
-				res = true;
-			}
-			//RVSM (FL290-410) or Below FL290
-			else if (RFL <= RVSM_UPPER && (RFL / 1000) % 2 == 1) {
-				res = true;
-			}
-		}
+		res = checkOneDirection(condition, RFL);
 		LOG_TRACE("Direction Check: Completed with {} result", res ? "PASSED" : "FAILED");
 		out.push_back(res);
 	}
@@ -1284,24 +1201,7 @@ vector<bool> CVFPCPlugin::checkAlerts(const Value& constraint,
 			continue;
 		}
 
-		for (rapidjson::SizeType j = 0; j < alerts->Size(); ++j) {
-			const auto& alert = (*alerts)[j];
-			if (!alert.IsObject()) {
-				continue;
-			}
-
-			if (const auto* ban = FindMemberValue(alert, "ban");
-				ban && ban->IsBool() && ban->GetBool()) {
-				res = false;
-			}
-
-			if (const auto* warnValue = FindMemberValue(alert,
-				"warn");
-				warnValue && warnValue->IsBool() && warnValue->GetBool
-				()) {
-				*warn = true;
-			}
-		}
+		res = checkOneAlerts(condition, *warn);
 
 		out.push_back(res);
 	}
