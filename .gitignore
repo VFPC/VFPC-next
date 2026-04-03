@@ -1,20 +1,16 @@
 ############################
 # Secrets & runtime state
 ############################
-
 .env
 .env.*
 !.env.template
 secrets/*
-
-# Traefik / Let's Encrypt storage (contains private keys)
 dockercompose/config/acme.json
 **/acme.json
 
 ############################
-# Backups (never commit)
+# Backups
 ############################
-
 backup/
 vfpc_*/
 *.tar.gz
@@ -24,7 +20,6 @@ vfpc_*/
 ############################
 # Docker runtime artifacts
 ############################
-
 **/data/
 **/volumes/
 **/.docker/
@@ -33,106 +28,126 @@ vfpc_*/
 ############################
 # Logs
 ############################
-
 *.log
 logs/
 log/
 
 ############################
-# JetBrains IDEs
+# IDEs
 ############################
 
+# JetBrains
 .idea/
 *.iml
 *.iws
 *.ipr
 
-############################
-# Visual Studio / VS Code
-############################
-
-.vscode/
+# Visual Studio
 .vs/
+.vscode/
 *.user
 *.suo
-*.cache
 *.db
-*.vcxproj.user
+*.opendb
+*.VC.db
+*.VC.VC.opendb
 
 ############################
 # OS / editor cruft
 ############################
-
 .DS_Store
 Thumbs.db
 ehthumbs.db
 desktop.ini
 
 ############################
-# Temporary / swap files
+# Temporary files
 ############################
-
 *~
 *.swp
 *.swo
 *.tmp
 
 ############################
-# vcpkg installation files
+# vcpkg
 ############################
-
 vcpkg_installed/
-**/vcpkg_installed/
-**/vcpkg_installed/**
-vcpkg_installed_old/**
+vcpkg_installed_old/
 
 ############################
-# Executables
+# Build output directories
 ############################
-
-*.exe
-*.out
-*.app
-.vs/
+Debug/
+Release/
+x86/
+x64/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+Win32/
+out/
+build/
 bin/
 
 ############################
-# Local include headers
+# C/C++ build artifacts
 ############################
-
-lib/include/
-
-
-############################
-# Precompiled Headers
-############################
-
-*.gch
+*.obj
+*.o
+*.ipch
 *.pch
+*.pdb
+*.ilk
+*.idb
+*.tlog
+*.lastbuildstate
+*.sbr
+*.bsc
+*.gch
 
 ############################
-# Compiled Dynamic libraries
+# Binaries
 ############################
-
+*.exe
+*.out
+*.app
+*.dll
 *.so
 *.dylib
-*.dll
 
 ############################
-# Compiled Static libraries
+# Resource compiler temp
 ############################
-
-#*.lai
-#*.la
-#*.a
-#*.lib
+RCa*
+RCb*
 
 ############################
-# Executables
+# Visual Studio generated
 ############################
+*.aps
+*.ncb
 
-*.exe
-*.out
-*.app
-.vs/
-bin/
+############################
+# CMake / Ninja
+############################
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+build.ninja
+.ninja_deps
+.ninja_log
+
+############################
+# Project-specific exclusions
+############################
+lib/include/
+
+############################
+# Keep important project files
+############################
+!*.sln
+!*.vcxproj
+!*.vcxproj.filters
+!*.rc
+!resource.h
