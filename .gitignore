@@ -1,49 +1,153 @@
-# Visual Studio user-specific files (do not commit)
-*.user
-*.vcxproj.user
-*.suo
+############################
+# Secrets & runtime state
+############################
+.env
+.env.*
+!.env.template
+secrets/*
+dockercompose/config/acme.json
+**/acme.json
+
+############################
+# Backups
+############################
+backup/
+vfpc_*/
+*.tar.gz
+*.tgz
+*.zip
+
+############################
+# Docker runtime artifacts
+############################
+**/data/
+**/volumes/
+**/.docker/
+**/docker-data/
+
+############################
+# Logs
+############################
+*.log
+logs/
+log/
+
+############################
+# IDEs
+############################
+
+# JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Visual Studio
 .vs/
+.vscode/
+*.user
+*.suo
+*.db
+*.opendb
+*.VC.db
+*.VC.VC.opendb
 
+############################
+# OS / editor cruft
+############################
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
 
-# Local include headers
-lib/include/
+############################
+# Temporary files
+############################
+*~
+*.swp
+*.swo
+*.tmp
 
-# Prerequisites
-*.d
+############################
+# vcpkg
+############################
+vcpkg_installed/
+vcpkg_installed_old/
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
+############################
+# Build output directories
+############################
+Debug/
+Release/
+x86/
+x64/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+Win32/
+out/
+build/
+bin/
+
+############################
+# C/C++ build artifacts
+############################
 *.obj
-
-# Precompiled Headers
-*.gch
+*.o
+*.ipch
 *.pch
+*.pdb
+*.ilk
+*.idb
+*.tlog
+*.lastbuildstate
+*.sbr
+*.bsc
+*.gch
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-#*.lai
-#*.la
-#*.a
-#*.lib
-
-# Executables
+############################
+# Binaries
+############################
 *.exe
 *.out
 *.app
-.vs/
-bin/
+*.dll
+*.so
+*.dylib
 
-# vcpkg
-vcpkg_installed/
-**/vcpkg_installed/
-**/vcpkg_installed/**
+############################
+# Resource compiler temp
+############################
+RCa*
+RCb*
+
+############################
+# Visual Studio generated
+############################
+*.aps
+*.ncb
+
+############################
+# CMake / Ninja
+############################
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+build.ninja
+.ninja_deps
+.ninja_log
+
+############################
+# Project-specific exclusions
+############################
+lib/include/
+
+############################
+# Keep important project files
+############################
+!*.sln
+!*.vcxproj
+!*.vcxproj.filters
+!*.rc
+!resource.h
