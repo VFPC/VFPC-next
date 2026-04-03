@@ -116,7 +116,7 @@ public:
 
         const rapidjson::Value& colours = config_doc_["colours"];
 
-        for (const char* colour_name : { "red", "green", "yellow" }) {
+        for (const char* colour_name : { "red", "amber", "green", "yellow", "grey"}) {
             if (!has_object_member_(colours, colour_name)) {
                 log_error(std::string("Missing or invalid colour: ") + colour_name);
                 return false;
@@ -150,6 +150,7 @@ public:
         spdlog.AddMember("flush_interval_sec", 1, alloc);
         spdlog.AddMember("pattern", "[%Y-%m-%d %H:%M:%S] [%l] %v", alloc);
         spdlog.AddMember("level", "info", alloc);
+        spdlog.AddMember("flush_level", "info", alloc);
         spdlog.AddMember("truncate", false, alloc);
 
         doc.AddMember("spdlog", spdlog, alloc);
@@ -188,8 +189,11 @@ public:
             };
 
         colours.AddMember("red", make_colour(190, 0, 0), alloc);
+		colours.AddMember("amber", make_colour(255, 165, 0), alloc);
         colours.AddMember("green", make_colour(0, 190, 0), alloc);
         colours.AddMember("yellow", make_colour(255, 165, 0), alloc);
+		colours.AddMember("grey", make_colour(128, 128, 128), alloc);
+
 
         doc.AddMember("colours", colours, alloc);
 
@@ -328,6 +332,8 @@ public:
     ColourRGB Red() const { return GetColour("red"); }
     ColourRGB Green() const { return GetColour("green"); }
     ColourRGB Yellow() const { return GetColour("yellow"); }
+	ColourRGB Amber() const { return GetColour("amber"); }
+	ColourRGB Grey() const { return GetColour("grey"); }
 
     COLORREF ToColorRef(const ColourRGB& c) const {
         return RGB(c.r, c.g, c.b);

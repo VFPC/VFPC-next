@@ -3,7 +3,6 @@
 #include "PluginConfig.h"
 #include "Constant.hpp"
 #include "Log.h"
-#include "VersionInfo.h"
 
 
 // Helper: map string to spdlog level (case-insensitive, safe defaults)
@@ -56,9 +55,9 @@ bool InitializeLogging(PluginConfig& pc)
             const std::string filename = MakeLogFilename();
             const std::filesystem::path fullpath = std::filesystem::path(pc.log_path) / filename;
 
-            spdlog::drop(VFPC_PLUGIN_NAME);
+            spdlog::drop(VFPC_LOGGER_NAME);
             auto logger = spdlog::basic_logger_mt(
-                VFPC_PLUGIN_NAME,
+                VFPC_LOGGER_NAME,
                 fullpath.string(),
                 pc.truncate
             );
@@ -76,7 +75,7 @@ bool InitializeLogging(PluginConfig& pc)
             logger->flush_on(to_level(pc.flush_level));
 		
 
-            logger->info("{} plugin version {} logging started.", VFPC_PLUGIN_NAME, VFPC_VERSION_STR);
+            logger->info("{} plugin version {} logging started.", MY_PLUGIN_NAME, MY_PLUGIN_VERSION);
 
             log_initialized = true;
         }

@@ -22,7 +22,9 @@
 
 // --- C++ Standard ---
 // string
-//#include <format>
+#include <format>
+#include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <string>
 #include <string_view>
 #include <regex>

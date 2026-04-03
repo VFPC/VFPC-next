@@ -3,6 +3,7 @@
 
 
 #include <spdlog/spdlog.h>
+#include "VersionInfo.h"
 
 #if defined(SPDLOG_USE_STD_FORMAT)
 // Using C++20 std::format
@@ -40,17 +41,19 @@ namespace vfpc::logging {
 
     // Dynamic-level wrapper (can’t be compiled out by SPDLOG_ACTIVE_LEVEL)
     template <typename... Args>
-    inline void log(LogLevel lvl, vfpc_format_string<Args...> fmtStr, Args&&... args) {
+    inline void log(LogLevel lvl, vfpc_format_string<Args...> fmtStr, Args&&... args)
+    {
         if (auto lg = spdlog::get(VFPC_LOGGER_NAME)) {
             lg->log(to_spd(lvl), fmtStr, std::forward<Args>(args)...);
         }
     }
 
     template <typename... Args>
-    inline void log(std::string_view loggerName,
-        LogLevel lvl,
-        vfpc_format_string<Args...> fmtStr,
-        Args&&... args) {
+    inline void log(std::string_view loggerName, 
+                    LogLevel lvl,
+                    vfpc_format_string<Args...> fmtStr,
+                    Args&&... args)
+    {
         if (auto lg = spdlog::get(std::string{ loggerName })) {
             lg->log(to_spd(lvl), fmtStr, std::forward<Args>(args)...);
         }
@@ -59,7 +62,8 @@ namespace vfpc::logging {
     // Per-level helpers that honor SPDLOG_ACTIVE_LEVEL
 #if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_TRACE
     template <typename... Args>
-    inline void log_trace(vfpc_format_string<Args...> f, Args&&... a) {
+    inline void log_trace(vfpc_format_string<Args...> f, Args&&... a) 
+    {
         if (auto lg = spdlog::get(VFPC_LOGGER_NAME)) lg->log(spdlog::level::trace, f, std::forward<Args>(a)...);
     }
 #else
@@ -69,7 +73,8 @@ namespace vfpc::logging {
 
 #if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_DEBUG
     template <typename... Args>
-    inline void log_debug(vfpc_format_string<Args...> f, Args&&... a) {
+    inline void log_debug(vfpc_format_string<Args...> f, Args&&... a) 
+    {
         if (auto lg = spdlog::get(VFPC_LOGGER_NAME)) lg->log(spdlog::level::debug, f, std::forward<Args>(a)...);
     }
 #else
@@ -79,7 +84,8 @@ namespace vfpc::logging {
 
 #if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_INFO
     template <typename... Args>
-    inline void log_info(vfpc_format_string<Args...> f, Args&&... a) {
+    inline void log_info(vfpc_format_string<Args...> f, Args&&... a)
+    {
         if (auto lg = spdlog::get(VFPC_LOGGER_NAME)) lg->log(spdlog::level::info, f, std::forward<Args>(a)...);
     }
 #else
@@ -89,7 +95,8 @@ namespace vfpc::logging {
 
 #if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_WARN
     template <typename... Args>
-    inline void log_warn(vfpc_format_string<Args...> f, Args&&... a) {
+    inline void log_warn(vfpc_format_string<Args...> f, Args&&... a)
+    {
         if (auto lg = spdlog::get(VFPC_LOGGER_NAME)) lg->log(spdlog::level::warn, f, std::forward<Args>(a)...);
     }
 #else
@@ -99,7 +106,8 @@ namespace vfpc::logging {
 
 #if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_ERROR
     template <typename... Args>
-    inline void log_error(vfpc_format_string<Args...> f, Args&&... a) {
+    inline void log_error(vfpc_format_string<Args...> f, Args&&... a)
+    {
         if (auto lg = spdlog::get(VFPC_LOGGER_NAME)) lg->log(spdlog::level::err, f, std::forward<Args>(a)...);
     }
 #else

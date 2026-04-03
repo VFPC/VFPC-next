@@ -19,13 +19,13 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\resource.h" />
     <ClInclude Include="src\analyzeFP.hpp" />
     <ClInclude Include="src\Constant.hpp" />
     <ClInclude Include="src\EuroScopePlugIn.h" />
     <ClInclude Include="src\JsonConfigLoader.h" />
     <ClInclude Include="src\Log.h" />
     <ClInclude Include="src\PluginConfig.h" />
-    <ClInclude Include="src\resource.h" />
     <ClInclude Include="src\stdafx.h" />
     <ClInclude Include="src\targetver.h" />
     <ClInclude Include="src\TimeWindow.h" />
@@ -209,7 +209,7 @@
       <AdditionalDependencies>lib\EuroScopePlugInDll.lib;Ws2_32.lib;Crypt32.lib;Wldap32.lib;Normaliz.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ResourceCompile>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\peter\Development\VFPC-3.6.4\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
