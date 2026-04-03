@@ -1,49 +1,138 @@
-# Visual Studio user-specific files (do not commit)
-*.user
-*.vcxproj.user
-*.suo
+############################
+# Secrets & runtime state
+############################
+
+.env
+.env.*
+!.env.template
+secrets/*
+
+# Traefik / Let's Encrypt storage (contains private keys)
+dockercompose/config/acme.json
+**/acme.json
+
+############################
+# Backups (never commit)
+############################
+
+backup/
+vfpc_*/
+*.tar.gz
+*.tgz
+*.zip
+
+############################
+# Docker runtime artifacts
+############################
+
+**/data/
+**/volumes/
+**/.docker/
+**/docker-data/
+
+############################
+# Logs
+############################
+
+*.log
+logs/
+log/
+
+############################
+# JetBrains IDEs
+############################
+
+.idea/
+*.iml
+*.iws
+*.ipr
+
+############################
+# Visual Studio / VS Code
+############################
+
+.vscode/
 .vs/
+*.user
+*.suo
+*.cache
+*.db
+*.vcxproj.user
 
+############################
+# OS / editor cruft
+############################
 
-# Local include headers
-lib/include/
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
 
-# Prerequisites
-*.d
+############################
+# Temporary / swap files
+############################
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+*~
+*.swp
+*.swo
+*.tmp
 
-# Precompiled Headers
-*.gch
-*.pch
+############################
+# vcpkg installation files
+############################
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+vcpkg_installed/
+**/vcpkg_installed/
+**/vcpkg_installed/**
+vcpkg_installed_old/**
 
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-#*.lai
-#*.la
-#*.a
-#*.lib
-
+############################
 # Executables
+############################
+
 *.exe
 *.out
 *.app
 .vs/
 bin/
 
-# vcpkg
-vcpkg_installed/
-**/vcpkg_installed/
-**/vcpkg_installed/**
+############################
+# Local include headers
+############################
+
+lib/include/
+
+
+############################
+# Precompiled Headers
+############################
+
+*.gch
+*.pch
+
+############################
+# Compiled Dynamic libraries
+############################
+
+*.so
+*.dylib
+*.dll
+
+############################
+# Compiled Static libraries
+############################
+
+#*.lai
+#*.la
+#*.a
+#*.lib
+
+############################
+# Executables
+############################
+
+*.exe
+*.out
+*.app
+.vs/
+bin/
