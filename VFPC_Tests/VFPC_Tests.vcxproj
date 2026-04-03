@@ -101,10 +101,12 @@
 
   <ItemGroup>
     <ClInclude Include="$(SolutionDir)src\TimeWindow.h" />
+    <ClInclude Include="$(SolutionDir)src\ConstraintChecks.hpp" />
   </ItemGroup>
 
   <ItemGroup>
     <ClCompile Include="TimeWindowTests.cpp" />
+    <ClCompile Include="ApiConstraintTests.cpp" />
 
     <!-- Google Test compiled directly — no separate gtest project needed -->
     <ClCompile Include="third_party\googletest\googletest\src\gtest-all.cc">

@@ -3,7 +3,13 @@
 **For:** `VFPC-next` branch `test-harness/peter-recovery-2026-04-02`
 **Base branch:** `peter-recovery-2026-04-02`
 **Purpose:** keep a standalone harness attached to Peter's line so it can move forward with the branch that is expected to become trunk later
-**Status:** bootstrap harness wired into the repo; first scope is `checkTimeWindow()`
+**Status:** harness wired into the repo; current scope covers `checkTimeWindow()` plus extracted pure constraint checks
+
+**Results (last run: 2026-04-03):**
+```
+[==========] 67 tests from 13 test suites ran.
+[  PASSED  ] 67 tests.
+```
 
 ---
 
@@ -23,7 +29,7 @@ Write a minimal test wrapper that constructs the minimum fake state needed to ca
 
 **Implemented in this bootstrap harness:** Option A for the stable seam that already exists in Peter's branch. The time/date logic is available as `checkTimeWindow()` in `src/TimeWindow.h`. This function takes only plain data types (`int day, int hour, int min, const rapidjson::Value& restriction`) and has no EuroScope dependency. That makes it the right first anchor for a harness that needs to survive ongoing refactor work.
 
-Constraint-level harnessing is intentionally a later slice. Peter's branch does not yet carry the extracted `ConstraintChecks.hpp` seam used by the production `VFPC` repo, so this harness starts with time-window coverage and leaves room to add the next pure checkers without binding the test branch to unstable internals too early.
+The next stable slice is now in place as well: a pure `ConstraintChecks.hpp` seam extracted for direct tests of destination, exit-point, route, min/max, direction, and alert evaluation. That keeps the harness growing at the pure-logic boundary rather than trying to fake a EuroScope session.
 
 ---
 
@@ -33,7 +39,7 @@ Constraint-level harnessing is intentionally a later slice. Peter's branch does 
 
 - Uses **Google Test v1.15.2** (git submodule at `VFPC_Tests/third_party/googletest/`)
 - Requires Visual Studio 2022 with the **"Desktop development with C++"** workload
-- Includes only `src/TimeWindow.h` and `lib/include/rapidjson/` for the bootstrap phase — no EuroScope SDK, no curl, no PCH
+- Includes `src/TimeWindow.h`, `src/ConstraintChecks.hpp`, and `lib/include/rapidjson/` — no EuroScope SDK, no curl, no PCH
 - Builds to `bin/Debug/tests/VFPC_Tests.exe`
 - Uses parameterised `TEST_P` / `INSTANTIATE_TEST_SUITE_P` pattern, one suite per restriction group
 
@@ -219,6 +225,6 @@ The loop-bound fix (Change 1) cannot easily be tested with a pass/fail assertion
 
 ## Next expansion
 
-- extract or mirror the next stable pure checker seam from Peter's branch rather than copying broad `VFPC` mainline helpers blindly
-- add constraint-level tests only once the branch exposes a stable non-EuroScope boundary for them
+- add runtime or fixture-backed coverage once Peter's line exposes a stable data-loading seam worth testing outside EuroScope
+- keep extracting pure helpers from Peter's line rather than copying broad `VFPC` mainline helpers blindly
 - keep the harness branch small and rebased on Peter's line instead of turning it into a parallel implementation branch
