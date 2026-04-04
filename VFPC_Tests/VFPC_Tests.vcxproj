@@ -106,6 +106,7 @@
   <ItemGroup>
     <ClInclude Include="$(SolutionDir)src\TimeWindow.h" />
     <ClInclude Include="$(SolutionDir)src\ConstraintChecks.hpp" />
+    <ClInclude Include="$(SolutionDir)src\SidLookup.hpp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -113,6 +114,7 @@
     <ClCompile Include="TimeWindowTests.cpp" />
     <ClCompile Include="ApiConstraintTests.cpp" />
     <ClCompile Include="ConstraintBatchTests.cpp" />
+    <ClCompile Include="SidLookupTests.cpp" />
 
     <!-- Google Test compiled directly — no separate gtest project needed -->
     <ClCompile Include="third_party\googletest\googletest\src\gtest-all.cc">
