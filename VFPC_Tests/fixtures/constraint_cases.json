@@ -465,6 +465,149 @@
       "constraint": { "route": ["TOBIX UL9", "TLA Y96"] },
       "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
       "expected": true
+    },
+
+    {
+      "id": "SRD_row2361_egaa_aloti_valid_passes",
+      "source": "SrdTraceSemanticTests Row 2361 (EGAA Exit=ALOTI, min=255, dir=odd, nodests=[EG,EI], route=[BLACA P600 TRN])",
+      "note": "FL270 (odd), correct route prefix, non-EG/EI dest, no exit-point constraint — must pass.",
+      "constraint": { "dir": "odd", "min": 255, "nodests": ["EG", "EI"], "route": ["BLACA P600 TRN"] },
+      "flight": { "destination": "LFPG", "route": ["BLACA", "P600", "TRN", "KONAN"], "rfl": 27000 },
+      "expected": true
+    },
+    {
+      "id": "SRD_row2361_egaa_aloti_eg_dest_fails",
+      "source": "SrdTraceSemanticTests Row 2361 — same constraint, destination in EG block",
+      "note": "EGLL is blocked by nodests=[EG]. Otherwise-valid flight — must fail.",
+      "constraint": { "dir": "odd", "min": 255, "nodests": ["EG", "EI"], "route": ["BLACA P600 TRN"] },
+      "flight": { "destination": "EGLL", "route": ["BLACA", "P600", "TRN"], "rfl": 27000 },
+      "expected": false
+    },
+    {
+      "id": "SRD_row2361_egaa_aloti_even_fl_fails",
+      "source": "SrdTraceSemanticTests Row 2361 — same constraint, wrong RVSM direction",
+      "note": "FL260 is EVEN (26000/1000=26, 26%2=0). Constraint requires ODD — must fail.",
+      "constraint": { "dir": "odd", "min": 255, "nodests": ["EG", "EI"], "route": ["BLACA P600 TRN"] },
+      "flight": { "destination": "LFPG", "route": ["BLACA", "P600", "TRN"], "rfl": 26000 },
+      "expected": false
+    },
+
+    {
+      "id": "SRD_row2357_egaa_adodo_warn_passes",
+      "source": "SrdTraceSemanticTests Row 2357 (EGAA Exit=ADODO, Note 489, warn=true, ban=false, min=255, dir=even)",
+      "note": "Warn-only alert (srd=489). warn does not set ban, so evaluator must return true.",
+      "constraint": { "dir": "even", "min": 255, "nodests": ["EG", "EI"], "route": ["BELZU AMCON"], "alerts": [{"srd": 489, "warn": true}] },
+      "flight": { "destination": "LFPG", "route": ["BELZU", "AMCON", "UNOKO"], "rfl": 26000 },
+      "expected": true
+    },
+    {
+      "id": "SRD_row2357_egaa_adodo_ei_dest_fails",
+      "source": "SrdTraceSemanticTests Row 2357 — same constraint, destination in EI block",
+      "note": "EIDW is blocked by nodests=[EI]. Warn alert present but dest check fires first — must fail.",
+      "constraint": { "dir": "even", "min": 255, "nodests": ["EG", "EI"], "route": ["BELZU AMCON"], "alerts": [{"srd": 489, "warn": true}] },
+      "flight": { "destination": "EIDW", "route": ["BELZU", "AMCON"], "rfl": 26000 },
+      "expected": false
+    },
+
+    {
+      "id": "SRD_row3849_egbb_ban_variant_always_fails",
+      "source": "SrdTraceSemanticTests Row 3849 (EGBB CDR ban variant, Notes 470+511, alerts=[ban470, warn511])",
+      "note": "Ban alert (srd=470) is present. checkOneAlerts returns false regardless of dest/dir — must fail.",
+      "constraint": { "nodests": ["EG", "EI"], "dir": "even", "min": 245, "alerts": [{"srd": 470, "ban": true}, {"srd": 511, "warn": true}] },
+      "flight": { "destination": "LFPG", "rfl": 26000 },
+      "expected": false
+    },
+
+    {
+      "id": "SRD_row2374_egaa_note172_active_window_passes",
+      "source": "SrdTraceSemanticTests Row 2374 (EGAA Exit=BIGNO, Note 172, min=155 max=175, dir=odd, Fri16:00-Sun07:45)",
+      "note": "Time window active (Saturday noon inside Fri-Sun). FL155 (odd, at lower bound). Full route prefix matches — must pass.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": {
+        "dir": "odd", "min": 155, "max": 175,
+        "nodests": ["EG", "EI"],
+        "route": ["LISBO L603 PEPOD L15 RISLA N862 PACSE EXMOR N92 DAWLY L149"],
+        "points": ["BIGNO"]
+      },
+      "flight": {
+        "destination": "LFPG",
+        "route": ["LISBO", "L603", "PEPOD", "L15", "RISLA", "N862", "PACSE", "EXMOR", "N92", "DAWLY", "L149", "EGNX"],
+        "points": ["BIGNO"],
+        "rfl": 15500
+      },
+      "expected": true
+    },
+    {
+      "id": "SRD_row2374_egaa_note172_above_max_fails",
+      "source": "SrdTraceSemanticTests Row 2374 — same window active, FL180 exceeds max=175",
+      "note": "Time window active (Saturday). FL180 (18000/100=180 > max 175) — must fail.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": {
+        "dir": "odd", "min": 155, "max": 175,
+        "nodests": ["EG", "EI"],
+        "route": ["LISBO L603 PEPOD L15 RISLA N862 PACSE EXMOR N92 DAWLY L149"],
+        "points": ["BIGNO"]
+      },
+      "flight": {
+        "destination": "LFPG",
+        "route": ["LISBO", "L603", "PEPOD", "L15", "RISLA", "N862", "PACSE", "EXMOR", "N92", "DAWLY", "L149", "EGNX"],
+        "points": ["BIGNO"],
+        "rfl": 18000
+      },
+      "expected": false
+    },
+    {
+      "id": "SRD_row2374_egaa_note172_inactive_window_passes",
+      "source": "SrdTraceSemanticTests Row 2374 — same constraint, time window inactive on Tuesday",
+      "note": "Tuesday noon is outside Fri-Sun window. Constraint does not apply — must pass regardless of fields.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 1, "hour": 12, "min": 0 },
+      "constraint": {
+        "dir": "odd", "min": 155, "max": 175,
+        "nodests": ["EG", "EI"],
+        "route": ["LISBO L603 PEPOD L15 RISLA N862 PACSE EXMOR N92 DAWLY L149"],
+        "points": ["BIGNO"]
+      },
+      "flight": {
+        "destination": "LFPG",
+        "route": ["LISBO", "L603", "PEPOD", "L15", "RISLA", "N862", "PACSE", "EXMOR", "N92", "DAWLY", "L149", "EGNX"],
+        "points": ["BIGNO"],
+        "rfl": 15500
+      },
+      "expected": true
+    },
+
+    {
+      "id": "SRD_row3849_egbb_timenodests_active_lf_fails",
+      "source": "SrdTraceSemanticTests Row 3849 (EGBB CDR time+nodests variant: nodests=[EG,EI,LE,LF,LI])",
+      "note": "Time window active (Saturday). LFPG starts with 'LF' which is in nodests — must fail.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": { "nodests": ["EG", "EI", "LE", "LF", "LI"], "dir": "even", "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 26000 },
+      "expected": false
+    },
+    {
+      "id": "SRD_row3849_egbb_timedests_active_lemg_passes",
+      "source": "SrdTraceSemanticTests Row 3849 (EGBB CDR time+dests variant: dests=[LEMG,LFBZ], nodests=[EG,EI])",
+      "note": "Time window active (Saturday). LEMG is in dests list and not in nodests — must pass.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": { "dests": ["LEMG", "LFBZ"], "nodests": ["EG", "EI"], "dir": "even", "min": 245 },
+      "flight": { "destination": "LEMG", "rfl": 26000 },
+      "expected": true
+    },
+    {
+      "id": "SRD_row3849_egbb_timedests_active_lfpg_fails",
+      "source": "SrdTraceSemanticTests Row 3849 — same time+dests variant, dest not in allowed list",
+      "note": "Time window active. LFPG is not in dests=[LEMG,LFBZ] — prefix 'LFPG' does not match 'LFBZ' — must fail.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": { "dests": ["LEMG", "LFBZ"], "nodests": ["EG", "EI"], "dir": "even", "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 26000 },
+      "expected": false
     }
   ]
 }
