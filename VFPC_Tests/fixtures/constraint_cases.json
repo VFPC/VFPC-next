@@ -257,6 +257,143 @@
         "rfl": 24000
       },
       "expected": false
+    },
+
+    {
+      "id": "TIMED_fri_mon_active_sat_blocks",
+      "note": "Friday-Monday time window. Simtime=Saturday 12:00 (inside window). Constraint blocks EG — should fail.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "TIMED_fri_mon_inactive_tue_passes",
+      "note": "Same window, simtime=Tuesday 12:00 (outside). Constraint doesn't apply — should pass.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 1, "hour": 12, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "TIMED_fri_mon_inactive_wed_passes",
+      "note": "Same window, simtime=Wednesday 12:00 (outside). Constraint doesn't apply — should pass.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 2, "hour": 12, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "TIMED_active_correct_dest_passes",
+      "note": "Window active (Saturday). Constraint only allows EGPF/EGPK. Destination EGPF — should pass.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 14, "min": 0 },
+      "constraint": { "dests": ["EGPF", "EGPK"] },
+      "flight": { "destination": "EGPF", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "TIMED_active_wrong_dest_fails",
+      "note": "Window active (Saturday). Constraint only allows EGPF/EGPK. Destination EGLL — should fail.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 14, "min": 0 },
+      "constraint": { "dests": ["EGPF", "EGPK"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "TIMED_inactive_wrong_dest_passes",
+      "note": "Window inactive (Tuesday). Same constraint — doesn't apply, so EGLL passes.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 1, "hour": 14, "min": 0 },
+      "constraint": { "dests": ["EGPF", "EGPK"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "TIMED_same_day_inside_blocks",
+      "note": "Monday 09:00-16:15. Simtime=Monday 10:00 (inside). Constraint blocks EG — should fail.",
+      "timewindow": { "start": { "date": 0, "time": "0900" }, "end": { "date": 0, "time": "1615" } },
+      "simtime": { "day": 0, "hour": 10, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "TIMED_same_day_outside_passes",
+      "note": "Monday 09:00-16:15. Simtime=Tuesday 10:00 (outside, wrong day). Constraint doesn't apply.",
+      "timewindow": { "start": { "date": 0, "time": "0900" }, "end": { "date": 0, "time": "1615" } },
+      "simtime": { "day": 1, "hour": 10, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": true
+    },
+
+    {
+      "id": "FL_min245_at_boundary_passes",
+      "note": "FL245 minimum, rfl exactly FL245 (24500 ft). Inclusive lower boundary — must pass.",
+      "constraint": { "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 24500 },
+      "expected": true
+    },
+    {
+      "id": "FL_min245_one_below_fails",
+      "note": "FL245 minimum, rfl=FL244 (24400 ft). One level below inclusive boundary — must fail.",
+      "constraint": { "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 24400 },
+      "expected": false
+    },
+    {
+      "id": "FL_min245_above_passes",
+      "note": "FL245 minimum, rfl=FL350 (35000 ft). Well above floor — must pass.",
+      "constraint": { "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 35000 },
+      "expected": true
+    },
+    {
+      "id": "FL_max360_at_boundary_passes",
+      "note": "FL360 ceiling, rfl exactly FL360 (36000 ft). Inclusive upper boundary — must pass.",
+      "constraint": { "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "FL_max360_one_above_fails",
+      "note": "FL360 ceiling, rfl=FL370 (37000 ft). One level above inclusive ceiling — must fail.",
+      "constraint": { "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 37000 },
+      "expected": false
+    },
+    {
+      "id": "FL_band_245_360_at_lower_bound_passes",
+      "note": "Band FL245-FL360. rfl=FL245 (lower boundary, inclusive) — must pass.",
+      "constraint": { "min": 245, "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 24500 },
+      "expected": true
+    },
+    {
+      "id": "FL_band_245_360_below_lower_fails",
+      "note": "Band FL245-FL360. rfl=FL244 (one below lower boundary) — must fail.",
+      "constraint": { "min": 245, "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 24400 },
+      "expected": false
+    },
+    {
+      "id": "FL_band_245_360_at_upper_bound_passes",
+      "note": "Band FL245-FL360. rfl=FL360 (upper boundary, inclusive) — must pass.",
+      "constraint": { "min": 245, "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "FL_band_245_360_above_upper_fails",
+      "note": "Band FL245-FL360. rfl=FL370 (one above upper boundary) — must fail.",
+      "constraint": { "min": 245, "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 37000 },
+      "expected": false
     }
   ]
 }

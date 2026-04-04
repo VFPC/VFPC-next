@@ -10,14 +10,29 @@
 //
 // To add a new test case: edit constraint_cases.json and rerun the exe.
 // No recompile needed.
+//
+// PARALLELISATION NOTE
+// --------------------
+// evaluateConstraint() is a pure function — no shared state, no side effects.
+// The main loop collects (bool passed) for each case into a vector before any
+// GTest reporting, so evaluation and reporting are cleanly separated.
+//
+// To run the evaluation phase in parallel when the fixture dataset grows:
+//   #include <execution>
+//   std::transform(std::execution::par_unseq,  // <-- add this argument
+//                  cases.begin(), cases.end(), results.begin(), evalFn);
+// The reporting loop is sequential (GTest's ADD_FAILURE is not thread-safe).
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "ConstraintChecks.hpp"
+#include "TimeWindow.h"
 #include "rapidjson/document.h"
 #include "rapidjson/istreamwrapper.h"
 
@@ -29,9 +44,7 @@ using namespace ConstraintChecks;
 
 static std::string fixtureDir()
 {
-    // __FILE__ expands to the absolute path of this .cpp file at compile time.
     std::string f = __FILE__;
-    // Normalise all separators to '/' for consistent splitting.
     for (auto& c : f) { if (c == '\\') c = '/'; }
     auto slash = f.rfind('/');
     return (slash == std::string::npos ? "./" : f.substr(0, slash + 1)) + "fixtures/";
@@ -40,16 +53,42 @@ static std::string fixtureDir()
 static const std::string FIXTURE_FILE = fixtureDir() + "constraint_cases.json";
 
 // ---------------------------------------------------------------------------
-// Combined evaluator — mirrors the plugin's per-constraint check sequence.
+// Simulated time (optional per case).
+// ---------------------------------------------------------------------------
+
+struct SimTime {
+    int day  = 0;   // Monday=0 … Sunday=6
+    int hour = 0;
+    int min  = 0;
+};
+
+// ---------------------------------------------------------------------------
+// Combined evaluator.
+//
+// Semantics when a time window is present:
+//   • window INACTIVE → constraint does not apply → return true
+//   • window ACTIVE   → evaluate all field checks normally
+//
+// This mirrors the plugin: a constraint's time window governs whether it
+// applies at all; only active constraints are then checked against the flight.
 // ---------------------------------------------------------------------------
 
 static bool evaluateConstraint(
-    const rapidjson::Value& c,
-    const std::string&              destination,
-    const std::vector<std::string>& route,
-    const std::vector<std::string>& points,
-    int                             rfl)
+    const rapidjson::Value&          c,
+    const std::string&               destination,
+    const std::vector<std::string>&  route,
+    const std::vector<std::string>&  points,
+    int                              rfl,
+    const std::optional<SimTime>&    simtime,
+    const rapidjson::Value*          timewindow)   // nullable
 {
+    if (timewindow && simtime.has_value()) {
+        bool active = checkTimeWindow(
+            simtime->day, simtime->hour, simtime->min, *timewindow);
+        if (!active)
+            return true;   // constraint not applicable right now
+    }
+
     bool warn = false;
     return checkOneDestination(c, destination)
         && checkOneExitPoint(c, points)
@@ -64,14 +103,19 @@ static bool evaluateConstraint(
 // ---------------------------------------------------------------------------
 
 struct BatchCase {
-    std::string             id;
-    std::string             note;
-    rapidjson::Document     constraint;
-    std::string             destination;
+    std::string              id;
+    std::string              note;
+    rapidjson::Document      constraint;
+    std::string              destination;
     std::vector<std::string> route;
     std::vector<std::string> points;
-    int                     rfl      = 0;
-    bool                    expected = false;
+    int                      rfl      = 0;
+    bool                     expected = false;
+
+    // Optional time-window fields.
+    std::optional<SimTime>   simtime;
+    rapidjson::Document      timewindow;   // may be empty (IsNull check required)
+    bool                     hasTimewindow = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -113,6 +157,20 @@ static std::vector<BatchCase> loadCases(std::string& errOut)
         if (!entry.HasMember("constraint")) continue;
         bc.constraint.CopyFrom(entry["constraint"], bc.constraint.GetAllocator());
 
+        if (entry.HasMember("timewindow") && entry["timewindow"].IsObject()) {
+            bc.timewindow.CopyFrom(entry["timewindow"], bc.timewindow.GetAllocator());
+            bc.hasTimewindow = true;
+        }
+
+        if (entry.HasMember("simtime") && entry["simtime"].IsObject()) {
+            const auto& st = entry["simtime"];
+            SimTime s;
+            if (st.HasMember("day")  && st["day"].IsInt())  s.day  = st["day"].GetInt();
+            if (st.HasMember("hour") && st["hour"].IsInt()) s.hour = st["hour"].GetInt();
+            if (st.HasMember("min")  && st["min"].IsInt())  s.min  = st["min"].GetInt();
+            bc.simtime = s;
+        }
+
         if (!entry.HasMember("flight")) continue;
         const auto& fl = entry["flight"];
 
@@ -140,6 +198,20 @@ static std::vector<BatchCase> loadCases(std::string& errOut)
 }
 
 // ---------------------------------------------------------------------------
+// Evaluation helper (pure — no side effects; safe to call in parallel).
+// ---------------------------------------------------------------------------
+
+static bool runCase(const BatchCase& bc)
+{
+    const rapidjson::Value* tw =
+        bc.hasTimewindow ? static_cast<const rapidjson::Value*>(&bc.timewindow)
+                         : nullptr;
+    return evaluateConstraint(
+        bc.constraint, bc.destination, bc.route, bc.points, bc.rfl,
+        bc.simtime, tw);
+}
+
+// ---------------------------------------------------------------------------
 // Tests.
 // ---------------------------------------------------------------------------
 
@@ -150,8 +222,12 @@ TEST(ConstraintBatch, FixtureFileLoads)
     ASSERT_TRUE(err.empty()) << err;
     ASSERT_GT(cases.size(), 0u)
         << "No cases loaded — fixture file may be empty: " << FIXTURE_FILE;
-    // Print count so it shows up in verbose output.
-    std::cout << "  Loaded " << cases.size() << " fixture cases from:\n"
+
+    size_t timed = 0;
+    for (const auto& c : cases) { if (c.hasTimewindow) ++timed; }
+
+    std::cout << "  Loaded " << cases.size() << " cases ("
+              << timed << " time-windowed) from:\n"
               << "  " << FIXTURE_FILE << "\n";
 }
 
@@ -161,28 +237,37 @@ TEST(ConstraintBatch, AllCasesPass)
     auto cases = loadCases(err);
     ASSERT_TRUE(err.empty()) << "Fixture load failed: " << err;
 
+    // ── Evaluate phase (pure transform; parallelise here when dataset grows) ──
+    std::vector<bool> results(cases.size());
+    std::transform(cases.begin(), cases.end(), results.begin(),
+        [](const BatchCase& bc) { return runCase(bc); });
+
+    // ── Reporting phase (sequential — GTest is not thread-safe) ──────────────
     int passed = 0;
     int failed = 0;
-
-    for (auto& bc : cases) {
-        bool result = evaluateConstraint(
-            bc.constraint, bc.destination, bc.route, bc.points, bc.rfl);
-
-        if (result == bc.expected) {
+    for (size_t i = 0; i < cases.size(); ++i) {
+        const bool got = results[i];
+        if (got == cases[i].expected) {
             ++passed;
         } else {
             ADD_FAILURE()
-                << "\n  CASE   : " << bc.id
-                << "\n  NOTE   : " << bc.note
-                << "\n  DEST   : " << bc.destination
-                << "  RFL=" << bc.rfl
-                << "\n  EXPECT : " << (bc.expected ? "PASS" : "FAIL")
-                << "\n  GOT    : " << (result      ? "PASS" : "FAIL");
+                << "\n  CASE   : " << cases[i].id
+                << "\n  NOTE   : " << cases[i].note
+                << "\n  DEST   : " << cases[i].destination
+                << "  RFL=" << cases[i].rfl
+                << (cases[i].hasTimewindow
+                    ? (cases[i].simtime
+                        ? "  TIMED day=" + std::to_string(cases[i].simtime->day)
+                          + " " + std::to_string(cases[i].simtime->hour)
+                          + ":" + std::to_string(cases[i].simtime->min)
+                        : "  TIMED (no simtime)")
+                    : "")
+                << "\n  EXPECT : " << (cases[i].expected ? "PASS" : "FAIL")
+                << "\n  GOT    : " << (got               ? "PASS" : "FAIL");
             ++failed;
         }
     }
 
-    // Summary line even when everything passes.
     std::cout << "  Batch result: " << passed << " passed";
     if (failed) std::cout << ", " << failed << " FAILED";
     std::cout << " (total " << (passed + failed) << ")\n";
