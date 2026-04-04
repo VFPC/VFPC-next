@@ -608,6 +608,100 @@
       "constraint": { "dests": ["LEMG", "LFBZ"], "nodests": ["EG", "EI"], "dir": "even", "min": 245 },
       "flight": { "destination": "LFPG", "rfl": 26000 },
       "expected": false
+    },
+
+    {
+      "id": "ADVERS_time_start_boundary_exact_active",
+      "adversarial": "Catches mutation: '>=' -> '>' in afterStart. If boundary is non-inclusive, Fri 16:00 reads as inactive and the blocking constraint is missed.",
+      "note": "Window Fri16:00->Sun07:45. simtime=Friday exactly 16:00 (start boundary, inclusive). Window must be ACTIVE -> nodests blocks EGLL.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 4, "hour": 16, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ADVERS_time_one_min_before_start_inactive",
+      "adversarial": "Paired with ADVERS_time_start_boundary_exact_active. Confirms the window is correctly INACTIVE one minute before start.",
+      "note": "Window Fri16:00->Sun07:45. simtime=Friday 15:59 (one minute before start). Window must be INACTIVE -> constraint does not apply -> PASS.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 4, "hour": 15, "min": 59 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ADVERS_time_end_boundary_exact_active",
+      "adversarial": "Catches mutation: '<=' -> '<' in beforeEnd. If boundary is non-inclusive, Sun 07:45 reads as inactive and the constraint is silently dropped too early.",
+      "note": "Window Fri16:00->Sun07:45. simtime=Sunday exactly 07:45 (end boundary, inclusive). Window must be ACTIVE -> nodests blocks EGLL.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 6, "hour": 7, "min": 45 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ADVERS_time_one_min_after_end_inactive",
+      "adversarial": "Paired with ADVERS_time_end_boundary_exact_active. Confirms the window is correctly INACTIVE one minute after end.",
+      "note": "Window Fri16:00->Sun07:45. simtime=Sunday 07:46 (one minute after end). Window must be INACTIVE -> PASS.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 6, "hour": 7, "min": 46 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 36000 },
+      "expected": true
+    },
+
+    {
+      "id": "ADVERS_dest_substring_not_prefix_passes",
+      "adversarial": "Catches mutation: rfind(prefix,0) -> find(prefix,0) in cc_destPrefixMatch. With find(), 'LEGE'.find('EG',0) returns pos 1 (non-prefix match) and wrongly blocks a French airport. rfind(prefix,0) correctly enforces prefix-only matching.",
+      "note": "'EG' appears at position 1 in 'LEGE' but LEGE does not START with 'EG'. nodests=['EG'] must not block it.",
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "LEGE", "rfl": 36000 },
+      "expected": true
+    },
+
+    {
+      "id": "ADVERS_max_zero_means_no_ceiling",
+      "adversarial": "Catches mutation: remove 'c[max].GetInt() > 0' guard in checkOneMinMax. Without the guard, max=0 computes (rfl/100) > 0 which is true for any positive FL, wrongly blocking all traffic.",
+      "note": "max=0 is the 'no upper ceiling' sentinel. FL360 must pass when max=0.",
+      "constraint": { "max": 0 },
+      "flight": { "destination": "LFPG", "rfl": 36000 },
+      "expected": true
+    },
+
+    {
+      "id": "ADVERS_route_and_noroute_specific_exclusion_fails",
+      "adversarial": "Tests that noroute (more specific) fires even when route (less specific) matches. A bug treating route-match as sufficient would return PASS incorrectly.",
+      "note": "constraint has route=['TLA Y96'] (2-token prefix) AND noroute=['TLA Y96 NATEB'] (3-token). Flight ['TLA','Y96','NATEB'] matches both: route passes (2-prefix match) but noroute also matches -> must FAIL.",
+      "constraint": { "route": ["TLA Y96"], "noroute": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ADVERS_route_and_noroute_escape_via_different_waypoint",
+      "adversarial": "Paired with ADVERS_route_and_noroute_specific_exclusion_fails. A different 3rd waypoint satisfies route but avoids noroute — must PASS.",
+      "note": "Same constraint. Flight ['TLA','Y96','ATSIX']: route=['TLA Y96'] matches (prefix), noroute=['TLA Y96 NATEB'] does not (ATSIX!=NATEB) -> must PASS.",
+      "constraint": { "route": ["TLA Y96"], "noroute": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "ATSIX"], "rfl": 36000 },
+      "expected": true
+    },
+
+    {
+      "id": "ADVERS_nodests_blocks_before_dests_whitelist",
+      "adversarial": "Catches mutation: swapping nodests/dests evaluation order. If dests were checked first, EGLL would pass the whitelist and the nodests block would be bypassed. nodests must fire first — dead combination.",
+      "note": "dests=['EGLL'] and nodests=['EG']. EGLL starts with 'EG' so nodests fires before dests can rescue it -> must FAIL.",
+      "constraint": { "dests": ["EGLL"], "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 36000 },
+      "expected": false
+    },
+
+    {
+      "id": "ADVERS_noroute_pattern_longer_than_flight_ignored",
+      "adversarial": "Catches mutation: removing 'pattern.size() > rte.size()' guard in cc_routeHas. Without the guard, a too-long noroute pattern would access rte out-of-bounds, causing a crash or wrong result. The guard must silently skip it.",
+      "note": "noroute=['TLA Y96 NATEB'] (3 tokens). Flight route has only 2 waypoints ['TLA','Y96']. Pattern cannot match -> noroute not triggered -> must PASS.",
+      "constraint": { "noroute": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96"], "rfl": 36000 },
+      "expected": true
     }
   ]
 }
