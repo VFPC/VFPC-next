@@ -394,6 +394,77 @@
       "constraint": { "min": 245, "max": 360 },
       "flight": { "destination": "LFPG", "rfl": 37000 },
       "expected": false
+    },
+
+    {
+      "id": "ROUTE_prefix_shorter_than_route_passes",
+      "note": "Pattern 'TLA Y96' (2 tokens) is a prefix of a 5-waypoint route — prefix match must pass.",
+      "constraint": { "route": ["TLA Y96"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB", "DCT", "GODOS"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_prefix_exact_length_passes",
+      "note": "Pattern 'TLA Y96 NATEB' (3 tokens) matches all 3 waypoints exactly — must pass.",
+      "constraint": { "route": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_diverges_at_second_waypoint_fails",
+      "note": "First waypoint matches (TLA) but second diverges (UL9 vs Y96) — must fail.",
+      "constraint": { "route": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "UL9", "NATEB", "GODOS"], "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ROUTE_pattern_longer_than_flight_fails",
+      "note": "Pattern has 3 tokens, flight route only has 2 — pattern skipped, no match, must fail.",
+      "constraint": { "route": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96"], "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ROUTE_wildcard_full_pattern_matches_any",
+      "note": "Constraint route=['*']. Wildcard matches any route — must pass regardless of waypoints.",
+      "constraint": { "route": ["*"] },
+      "flight": { "destination": "LFPG", "route": ["TOBIX", "UL9", "BABAN"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_wildcard_token_in_middle_passes",
+      "note": "Pattern 'TLA * NATEB': middle token is wildcard. Route [TLA, Y96, NATEB] — must pass.",
+      "constraint": { "route": ["TLA * NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_lowercase_pattern_matches_uppercase_flight",
+      "note": "Pattern is lowercase 'tla y96 nateb' in JSON; cc_routeHas uppercases patterns before compare. Must pass.",
+      "constraint": { "route": ["tla y96 nateb"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_noroute_blocks_matching_flight",
+      "note": "noroute=['TLA Y96 NATEB']. Flight uses that route — constraint must block it.",
+      "constraint": { "noroute": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ROUTE_noroute_allows_non_matching_flight",
+      "note": "noroute=['TLA Y96 NATEB']. Flight uses a different route — constraint must pass.",
+      "constraint": { "noroute": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TOBIX", "UL9", "NATEB"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_multi_pattern_second_matches",
+      "note": "Two patterns: 'TOBIX UL9' and 'TLA Y96'. Flight starts TLA Y96 — second pattern matches, must pass.",
+      "constraint": { "route": ["TOBIX UL9", "TLA Y96"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": true
     }
   ]
 }
