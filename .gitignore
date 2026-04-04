@@ -13,6 +13,10 @@ dockercompose/config/acme.json
 ############################
 backup/
 vfpc_*/
+# Re-include the test harness project (vfpc_*/ catches VFPC_Tests/ on Windows
+# due to case-insensitive path matching).
+!VFPC_Tests/
+!VFPC_Tests/**
 *.tar.gz
 *.tgz
 *.zip

@@ -1,0 +1,262 @@
+{
+  "format_version": 1,
+  "description": "Combined constraint evaluation fixtures. Each case runs all applicable check functions (destination, exit-point, route, min/max, direction, alerts) in sequence against a simulated flight. Add new cases here without recompiling.",
+  "cases": [
+    {
+      "id": "DEST_nodests_EG_blocks_EGLL",
+      "note": "Constraint excludes all EG airports — EGLL must fail",
+      "constraint": { "nodests": ["EG", "EI"], "min": 55, "max": 660 },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "DEST_nodests_EG_passes_LFPG",
+      "note": "Constraint excludes EG/EI — French airport must pass",
+      "constraint": { "nodests": ["EG", "EI"], "min": 55, "max": 660 },
+      "flight": { "destination": "LFPG", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "DEST_dests_allowlist_passes",
+      "note": "Constraint only allows EGPF/EGPK — EGPF must pass",
+      "constraint": { "dests": ["EGPF", "EGPK"] },
+      "flight": { "destination": "EGPF", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "DEST_dests_allowlist_blocks_other",
+      "note": "Constraint only allows EGPF/EGPK — EGLL must fail",
+      "constraint": { "dests": ["EGPF", "EGPK"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "EXIT_points_match",
+      "note": "Constraint requires exit via GOMUP — matching points pass",
+      "constraint": { "points": ["GOMUP"] },
+      "flight": { "destination": "LFPG", "points": ["GOMUP"], "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "EXIT_points_no_match",
+      "note": "Constraint requires exit via GOMUP — different point fails",
+      "constraint": { "points": ["GOMUP"] },
+      "flight": { "destination": "LFPG", "points": ["BALIX"], "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "EXIT_nopoints_blocks",
+      "note": "Constraint blocks GOMUP exit — must fail when GOMUP present",
+      "constraint": { "nopoints": ["GOMUP"] },
+      "flight": { "destination": "LFPG", "points": ["GOMUP"], "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "ROUTE_prefix_match",
+      "note": "Constraint requires EBOTO UN601 RIBEL prefix — matching route passes",
+      "constraint": { "route": ["EBOTO UN601 RIBEL"] },
+      "flight": { "destination": "LFPG", "route": ["EBOTO", "UN601", "RIBEL", "LATLO"], "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_prefix_no_match",
+      "note": "Constraint requires EBOTO UN601 RIBEL prefix — different airway fails",
+      "constraint": { "route": ["EBOTO UN601 RIBEL"] },
+      "flight": { "destination": "LFPG", "route": ["EBOTO", "DTY", "RIBEL"], "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "ROUTE_wildcard_passes_anything",
+      "note": "Wildcard route passes any route string",
+      "constraint": { "route": ["*"] },
+      "flight": { "destination": "LFPG", "route": ["EBOTO", "UN601"], "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_noroute_blocks",
+      "note": "noroute blocks a matching route",
+      "constraint": { "noroute": ["EBOTO UN601"] },
+      "flight": { "destination": "LFPG", "route": ["EBOTO", "UN601", "RIBEL"], "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "MINMAX_inside_band",
+      "note": "FL180 inside FL105-FL245 band — passes",
+      "constraint": { "min": 105, "max": 245 },
+      "flight": { "destination": "LFPG", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "MINMAX_below_min",
+      "note": "FL100 below FL105 min — fails",
+      "constraint": { "min": 105, "max": 245 },
+      "flight": { "destination": "LFPG", "rfl": 10000 },
+      "expected": false
+    },
+    {
+      "id": "MINMAX_above_max",
+      "note": "FL250 above FL245 max — fails",
+      "constraint": { "min": 105, "max": 245 },
+      "flight": { "destination": "LFPG", "rfl": 25000 },
+      "expected": false
+    },
+    {
+      "id": "MINMAX_fra_floor_only_passes",
+      "note": "FL245+ FRA-only constraint (min 245, no max) — FL250 passes",
+      "constraint": { "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 25000 },
+      "expected": true
+    },
+    {
+      "id": "MINMAX_fra_floor_only_below",
+      "note": "FL245+ FRA-only constraint — FL240 fails",
+      "constraint": { "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 24000 },
+      "expected": false
+    },
+    {
+      "id": "DIR_even_passes_fl360",
+      "note": "Even RVSM level — FL360 passes",
+      "constraint": { "dir": "even" },
+      "flight": { "destination": "LFPG", "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "DIR_even_fails_fl350",
+      "note": "Even RVSM level — FL350 fails",
+      "constraint": { "dir": "even" },
+      "flight": { "destination": "LFPG", "rfl": 35000 },
+      "expected": false
+    },
+    {
+      "id": "DIR_odd_passes_fl350",
+      "note": "Odd RVSM level — FL350 passes",
+      "constraint": { "dir": "odd" },
+      "flight": { "destination": "LFPG", "rfl": 35000 },
+      "expected": true
+    },
+    {
+      "id": "ALERT_ban_blocks",
+      "note": "Ban alert — constraint must fail regardless of other fields",
+      "constraint": {
+        "alerts": [{ "srd": 440, "note": "Event-only route.", "warn": false, "ban": true }]
+      },
+      "flight": { "destination": "LFPG", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "ALERT_warn_passes",
+      "note": "Warn-only alert — constraint still passes (caller notes the warning separately)",
+      "constraint": {
+        "alerts": [{ "srd": 489, "note": "Pilot discretion.", "warn": true, "ban": false }]
+      },
+      "flight": { "destination": "LFPG", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "REAL_standard_upper_airway",
+      "note": "Typical upper-airway constraint: route prefix + FL band + even direction",
+      "constraint": {
+        "route": ["EBOTO UN601 RIBEL"],
+        "min": 250,
+        "max": 660,
+        "dir": "even"
+      },
+      "flight": {
+        "destination": "LFPG",
+        "route": ["EBOTO", "UN601", "RIBEL", "LATLO"],
+        "rfl": 36000
+      },
+      "expected": true
+    },
+    {
+      "id": "REAL_standard_upper_airway_wrong_level",
+      "note": "Same constraint — FL240 is even but below FL250 min: fails",
+      "constraint": {
+        "route": ["EBOTO UN601 RIBEL"],
+        "min": 250,
+        "max": 660,
+        "dir": "even"
+      },
+      "flight": {
+        "destination": "LFPG",
+        "route": ["EBOTO", "UN601", "RIBEL", "LATLO"],
+        "rfl": 24000
+      },
+      "expected": false
+    },
+    {
+      "id": "REAL_egph_y96_nateb_non_uk",
+      "note": "EGPH TLA Y96 NATEB to non-UK destination: constraint applies no-UK-dest filter with route prefix",
+      "constraint": {
+        "nodests": ["EG"],
+        "route": ["TLA Y96 NATEB"]
+      },
+      "flight": {
+        "destination": "EDDF",
+        "route": ["TLA", "Y96", "NATEB", "DCT", "GODOS"],
+        "rfl": 36000
+      },
+      "expected": true
+    },
+    {
+      "id": "REAL_egph_y96_nateb_to_uk",
+      "note": "Same constraint — UK destination EGNT is blocked by nodests EG",
+      "constraint": {
+        "nodests": ["EG"],
+        "route": ["TLA Y96 NATEB"]
+      },
+      "flight": {
+        "destination": "EGNT",
+        "route": ["TLA", "Y96", "NATEB"],
+        "rfl": 36000
+      },
+      "expected": false
+    },
+    {
+      "id": "REAL_fra_entry_blocks_irish",
+      "note": "FRA entry constraint: correct exit point + FL but blocked by nodests EI for Irish destination",
+      "constraint": {
+        "points": ["NIMAT"],
+        "nodests": ["EI"],
+        "min": 245
+      },
+      "flight": {
+        "destination": "EIDW",
+        "points": ["NIMAT"],
+        "rfl": 25000
+      },
+      "expected": false
+    },
+    {
+      "id": "REAL_fra_entry_passes_non_irish",
+      "note": "Same FRA entry constraint — non-Irish destination passes",
+      "constraint": {
+        "points": ["NIMAT"],
+        "nodests": ["EI"],
+        "min": 245
+      },
+      "flight": {
+        "destination": "LFPG",
+        "points": ["NIMAT"],
+        "rfl": 25000
+      },
+      "expected": true
+    },
+    {
+      "id": "REAL_fra_entry_below_floor",
+      "note": "FRA entry — correct exit point and destination but below FL245 floor",
+      "constraint": {
+        "points": ["NIMAT"],
+        "nodests": ["EI"],
+        "min": 245
+      },
+      "flight": {
+        "destination": "LFPG",
+        "points": ["NIMAT"],
+        "rfl": 24000
+      },
+      "expected": false
+    }
+  ]
+}

@@ -61,7 +61,11 @@
   </PropertyGroup>
 
   <!-- Common include paths shared by both configurations -->
+  <!-- TestRapidJson must come before VfpcIncludes so the test project uses    -->
+  <!-- RapidJSON 1.1.0 (third_party) rather than the plugin's vendored v0.11. -->
+  <!-- The plugin's own build (VFPC.vcxproj) is unaffected.                   -->
   <PropertyGroup>
+    <TestRapidJson>$(ProjectDir)third_party\rapidjson\include</TestRapidJson>
     <VfpcIncludes>$(SolutionDir)src;$(SolutionDir)lib\include;$(ProjectDir)third_party\googletest\googletest\include</VfpcIncludes>
     <GtestIncludes>$(ProjectDir)third_party\googletest\googletest\include;$(ProjectDir)third_party\googletest\googletest</GtestIncludes>
   </PropertyGroup>
@@ -73,7 +77,7 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>false</SDLCheck>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(VfpcIncludes);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(TestRapidJson);$(VfpcIncludes);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;_SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -91,7 +95,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>false</SDLCheck>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(VfpcIncludes);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(TestRapidJson);$(VfpcIncludes);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;_SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -105,8 +109,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ClCompile Include="main.cpp" />
     <ClCompile Include="TimeWindowTests.cpp" />
     <ClCompile Include="ApiConstraintTests.cpp" />
+    <ClCompile Include="ConstraintBatchTests.cpp" />
 
     <!-- Google Test compiled directly — no separate gtest project needed -->
     <ClCompile Include="third_party\googletest\googletest\src\gtest-all.cc">

@@ -184,10 +184,4 @@ INSTANTIATE_TEST_SUITE_P(
     caseId
 );
 
-// ── main ─────────────────────────────────────────────────────────────────────
-
-int main(int argc, char** argv)
-{
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
+// main() lives in main.cpp — one entry point for all test files.
