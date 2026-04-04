@@ -18,9 +18,9 @@
 // | Airport/SID navigation             | YES           |
 // | SID-level restriction evaluation   | YES           |
 // | Constraint evaluation (7 rounds)   | YES           |
-// | Route syntax normalisation         | Skipped (test |
-// |                                    | supplies clean|
-// |                                    | route_points) |
+// | Route syntax normalisation         | YES (via      |
+// |                                    | RouteSyntax:: |
+// |                                    | normalise...) |
 // | Output string formatting           | Skipped       |
 // +------------------------------------+
 //
@@ -38,6 +38,7 @@
 #include "rapidjson/document.h"
 
 #include "FlightPlanRow.hpp"
+#include "RouteSyntax.hpp"
 #include "SidLookup.hpp"
 #include "ConstraintChecks.hpp"
 #include "TimeWindow.h"
@@ -287,6 +288,8 @@ namespace detail {
 struct ValidationOutcome {
     bool sid_found      = false; // A matching SID/non-SID route was found in the airport
     bool sid_level_pass = true;  // SID-level restrictions were satisfied (or none existed)
+    bool syntax_ok      = true;  // Route syntax normalisation succeeded
+    std::string syntax_error;    // Failure description when syntax_ok is false
     bool overall_pass   = false; // All 7 evaluation rounds completed with ≥1 constraint surviving
     int  fail_round     = -1;    // Round where evaluation stopped (-1=no rounds ran, 7=all passed)
     bool warns          = false; // At least one warning constraint triggered
@@ -358,9 +361,22 @@ inline ValidationOutcome validateFlightPlan(
         return out; // SID restriction gates the flight — skip constraint evaluation
     }
 
-    // ---- 4. Constraint evaluation loop (7 rounds) ----
+    // ---- 4. Route syntax normalisation ----
+    // Mirrors CVFPCPlugin::ValidateFlightPlan_ which calls
+    // NormaliseAndValidateRouteSyntax_ on a copy of route_points before the
+    // constraint loop. The original route_points is kept for exit-point check
+    // (round 1); the normalised copy is used for route check (round 2).
+    std::vector<std::string> normalised_route = row.route_points;
+    std::string syntax_err;
+    const bool syntax_ok = RouteSyntax::normaliseAndValidateRoute(
+        normalised_route, row.origin, row.destination, row.sid, row.first_waypoint, syntax_err);
+    out.syntax_ok    = syntax_ok;
+    out.syntax_error = syntax_err;
+
+    // ---- 5. Constraint evaluation loop (7 rounds) ----
     // Mirrors the while (round < 7) loop in ValidateFlightPlan_.
-    // NOTE: route syntax normalisation is skipped — use pre-cleaned route_points.
+    // Rounds 1 and 2 are gated on syntax_ok — if syntax failed, they are
+    // no-ops (validity unchanged), matching the plugin's behaviour.
     std::vector<bool> validity(constraints->Size(), true);
     bool warn = false;
     detail::RestrictionFailureFlags constraintRestrictionFails{};
@@ -380,17 +396,25 @@ inline ValidationOutcome validateFlightPlan(
                     return checkOneDestination(c, row.destination);
                 });
             break;
-        case 1: // exit point
-            newValidity = detail::applyCheck(*constraints, validity,
-                [&](const rapidjson::Value& c) {
-                    return checkOneExitPoint(c, row.route_points);
-                });
+        case 1: // exit point — uses original route_points; no-op if syntax failed
+            if (!syntax_ok) {
+                newValidity = validity;
+            } else {
+                newValidity = detail::applyCheck(*constraints, validity,
+                    [&](const rapidjson::Value& c) {
+                        return checkOneExitPoint(c, row.route_points);
+                    });
+            }
             break;
-        case 2: // route
-            newValidity = detail::applyCheck(*constraints, validity,
-                [&](const rapidjson::Value& c) {
-                    return checkOneRoute(c, row.route_points);
-                });
+        case 2: // route — uses normalised_route; no-op if syntax failed
+            if (!syntax_ok) {
+                newValidity = validity;
+            } else {
+                newValidity = detail::applyCheck(*constraints, validity,
+                    [&](const rapidjson::Value& c) {
+                        return checkOneRoute(c, normalised_route);
+                    });
+            }
             break;
         case 3: // per-constraint restrictions
             newValidity = detail::checkConstraintRestrictions(

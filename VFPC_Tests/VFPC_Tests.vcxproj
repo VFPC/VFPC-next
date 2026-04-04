@@ -108,6 +108,7 @@
     <ClInclude Include="$(SolutionDir)src\ConstraintChecks.hpp" />
     <ClInclude Include="$(SolutionDir)src\SidLookup.hpp" />
     <ClInclude Include="$(SolutionDir)src\FlightPlanRow.hpp" />
+    <ClInclude Include="$(SolutionDir)src\RouteSyntax.hpp" />
     <ClInclude Include="$(SolutionDir)src\ValidatorCore.hpp" />
   </ItemGroup>
 
@@ -117,6 +118,7 @@
     <ClCompile Include="ApiConstraintTests.cpp" />
     <ClCompile Include="ConstraintBatchTests.cpp" />
     <ClCompile Include="SidLookupTests.cpp" />
+    <ClCompile Include="RouteSyntaxTests.cpp" />
     <ClCompile Include="ValidatorCoreTests.cpp" />
 
     <!-- Google Test compiled directly — no separate gtest project needed -->
