@@ -155,3 +155,4 @@ lib/include/
 !*.vcxproj.filters
 !*.rc
 !resource.h
+test_results.json
