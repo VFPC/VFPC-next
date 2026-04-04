@@ -302,8 +302,9 @@ struct ValidationOutcome {
 // Run the constraint selection and evaluation path with plain-data inputs.
 //
 // Parameters:
-//   row          — parsed flight plan; route_points should be pre-cleaned
-//                  (route syntax normalisation is not applied here)
+//   row          — parsed flight plan; route_points are the raw tokenised route
+//                  (normalisation is applied internally via RouteSyntax::
+//                  normaliseAndValidateRoute before the round-2 route check)
 //   airport      — single airport JSON object, same shape as the plugin uses
 //                  after CVFPCPlugin::ExtractSingleAirportToObject_:
 //                  {"icao":"EGXX","sids":[{"point":"...","constraints":[...]}]}
