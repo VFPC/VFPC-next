@@ -42,14 +42,23 @@
 //   from EuroScope).  Omit it to auto-tokenise from route.
 //   sim_day uses Monday=0 convention.  Omit sim_* to default to Monday 12:00 UTC.
 //
-// SYNTAX ADVISORY / MISSING ROUTE
+// SYNTAX ADVISORY
 //   A route syntax error (SYN) does not cause a hard FAIL by itself.  The plugin
-//   marks it as a SYN advisory and continues evaluating the remaining constraint
-//   rounds (with rounds 1 and 2 as no-ops).  vfpc_check matches this behaviour:
-//   PASS/FAIL is determined by the constraint rounds; SYN is reported separately.
-//   Similarly, omitting "route" entirely is treated the same way as a syntax
-//   failure: rounds 1 and 2 are no-ops but the other rounds still run.  "route"
-//   is therefore optional; "route_points" alone is sufficient for round 0/3-6.
+//   sets VF_SYNTAX = "Invalid Syntax" (not "ERR") and continues evaluating the
+//   remaining constraint rounds (with rounds 1 and 2 as no-ops).  vfpc_check
+//   matches this behaviour: PASS/FAIL is determined by the constraint rounds;
+//   SYN is reported separately.
+//
+// MISSING ROUTE / MISSING DESTINATION
+//   These are hard ERR failures in the plugin.  FinalizeValidationResult_ in
+//   analyzeFP.cpp calls FieldIndicatesFailure_() on every field; "ERR" always
+//   returns true regardless of the constraint round outcome.  vfpc_check mirrors
+//   this: missing "route" or missing "destination" are reported as ERR and exit 1
+//   immediately, before calling ValidatorCore.  "origin", "destination", and
+//   "route" are therefore all required fields.
+//   Note: "route_points" alone is NOT accepted as a substitute for "route".
+//   EuroScope always provides the raw route string whenever it provides waypoints;
+//   accepting route_points-only would give a PASS for input the plugin rejects.
 //
 // VFR HANDLING
 //   The live plugin short-circuits non-IFR plans to "Not Checked" and returns
@@ -94,16 +103,19 @@ static void printHelp(const char* argv0)
         "out.json      Real VFPC out.json (bare airport array or {cycle,airports:[...]} envelope).\n"
         "flightplan    JSON object describing the flight.  See header comment for fields.\n"
         "\n"
+        "Required fields: origin, destination, and route.\n"
+        "  route_points is optional (auto-tokenised from route if absent).\n"
+        "  Missing origin/destination/route is a hard ERR (exit 1) — matching plugin.\n"
+        "\n"
         "Exit codes:\n"
         "  0  PASS — all 7 constraint rounds completed (SYN advisory may still be printed)\n"
         "  0  NOT CHECKED — flight plan is VFR; plugin would not evaluate it\n"
-        "  1  FAIL — constraint or SID-level gate eliminated all options\n"
+        "  1  FAIL — ERR field, constraint gate, or SID-level restriction\n"
         "  2  ERROR — bad arguments, unreadable files, or JSON parse failure\n"
         "\n"
         "Notes:\n"
-        "  \"route\" is optional. Omitting it is treated like a syntax error: rounds\n"
-        "  1 (exit point) and 2 (route) are skipped but all other rounds still run.\n"
         "  SYN advisory: a route syntax error does not itself cause exit 1.\n"
+        "  Missing route/destination: these ARE hard ERR failures (exit 1).\n"
         "  VFR: is_ifr=false exits 0 with NOT CHECKED — matching the plugin.\n";
 }
 
@@ -303,11 +315,11 @@ int main(int argc, char** argv)
     const int simHour = intMember(fpDoc, "sim_hour", 12);
     const int simMin  = intMember(fpDoc, "sim_min",  0);
 
-    // ---- Hard-error only on origin — minimum needed to locate the airport ----
-    // Destination missing is an ERR in the plugin (VF_DESTINATION) but the plugin
-    // continues; the CLI mirrors that by letting ValidatorCore handle it (round 0
-    // will eliminate all constraints).  Origin is needed to call
-    // ExtractAirportFromDocument, so we still exit 2 for that.
+    // ---- Required-field validation — mirrors plugin ERR gates ----
+    // origin: needed to locate the airport in out.json (exit 2 — tool error).
+    // destination and route/route_points: plugin sets VF_*=ERR and
+    // FinalizeValidationResult_ treats ERR as a hard failure regardless of
+    // constraint rounds.  We mirror that with exit 1 here.
     if (row.origin.empty()) {
         std::cerr << "ERROR: flight plan missing \"origin\"\n"; return 2;
     }
@@ -317,28 +329,58 @@ int main(int argc, char** argv)
     // sid_suffix from sid (mirrors ParseFlightPlanRow_ in analyzeFP.cpp).
     normaliseSidFields(row, hasExplicitFirst, hasExplicitSuffix);
 
-    // ---- IFR gate — mirrors analyzeFP.cpp line 1414 ----
-    // The plugin returns "Not Checked" immediately for non-IFR flight plans;
-    // no constraint rounds are run.  Match that here so is_ifr=false does not
-    // produce a spurious PASS/FAIL.
-    if (!row.is_ifr) {
+    // Destination and route checks come after normalisation so that the
+    // printed header shows the uppercased values.
+    const bool have_route_text   = !row.route.empty();
+    const bool have_route_points = !row.route_points.empty();
+
+    // ---- Print flight plan header ----
+    // Emitted before all short-circuit exits so Peter always sees what was
+    // being checked.
+    auto printHeader = [&]() {
         std::cout << "\n=== VFPC Route Check ===\n";
         std::cout << "Callsign:    " << (row.callsign.empty() ? "(none)" : row.callsign) << "\n";
         std::cout << "Origin:      " << row.origin << "\n";
         std::cout << "Destination: " << (row.destination.empty() ? "(none)" : row.destination) << "\n";
+        std::cout << "Route:       " << row.route << "\n";
+        std::cout << "SID:         " << (row.sid.empty() ? "(none)" : row.sid) << "\n";
+        std::cout << "1st WPT:     " << (row.first_waypoint.empty() ? "(none)" : row.first_waypoint) << "\n";
+        std::cout << "SID suffix:  " << (row.sid_suffix.empty() ? "(none)" : row.sid_suffix) << "\n";
         std::cout << "RFL:         FL" << (row.rfl / 100) << "\n";
+        std::cout << "Sim time:    day=" << simDay << " " << simHour << ":" << simMin << " UTC\n";
         std::cout << "\n";
+    };
+
+    // ---- IFR gate — mirrors analyzeFP.cpp line 1414 ----
+    // Plugin returns "Not Checked" immediately; no constraint rounds run.
+    if (!row.is_ifr) {
+        printHeader();
         std::cout << "NOT CHECKED (VFR) — plugin does not validate non-IFR flight plans.\n\n";
         return 0;
     }
 
-    // ---- Missing route text — mirrors analyzeFP.cpp line 1476 ----
-    // The plugin sets VF_SYNTAX=ERR and blocks rounds 1 and 2 but does NOT
-    // return early; the remaining rounds still run.  ValidatorCore already
-    // treats an empty route_points the same as syntax_ok=false (rounds 1 and 2
-    // are no-ops).  We note the absence here and continue; the SYN ADVISORY
-    // block in the output section will surface it.
-    const bool have_route_text = !row.route.empty();
+    // ---- Destination ERR gate — mirrors analyzeFP.cpp line 1472 ----
+    // Plugin sets VF_DESTINATION="ERR"; FinalizeValidationResult_ treats ERR
+    // as a hard failure regardless of constraint round outcomes.
+    if (row.destination.empty()) {
+        printHeader();
+        std::cout << "ERR: destination missing — plugin marks VF_DESTINATION=ERR (hard failure).\n\n";
+        return 1;
+    }
+
+    // ---- Route ERR gate — mirrors analyzeFP.cpp line 1476 ----
+    // Plugin sets VF_SYNTAX="ERR" when row.route (the raw route string from
+    // EuroScope) is empty; FinalizeValidationResult_ treats ERR as a hard
+    // failure regardless of constraint round outcomes.  EuroScope always
+    // provides the route string when it provides route_points, so in plugin
+    // usage both are absent together.  The CLI mirrors this exactly: "route"
+    // must be present (route_points alone is not sufficient).
+    if (!have_route_text) {
+        printHeader();
+        std::cout << "ERR: \"route\" missing — plugin marks VF_SYNTAX=ERR (hard failure).\n";
+        std::cout << "     Provide the raw route string in \"route\"; \"route_points\" alone is not accepted.\n\n";
+        return 1;
+    }
 
     // ---- Unwrap the {cycle, airports:[...]} envelope if present ----
     // The parser produces an envelope object; the plugin strips it on ingest.
@@ -374,43 +416,30 @@ int main(int argc, char** argv)
         ValidatorCore::validateFlightPlan(row, airportDoc, simDay, simHour, simMin);
 
     // ---- Print result ----
-    std::cout << "\n=== VFPC Route Check ===\n";
-    std::cout << "Callsign:    " << (row.callsign.empty() ? "(none)" : row.callsign) << "\n";
-    std::cout << "Origin:      " << row.origin << "\n";
-    std::cout << "Destination: " << row.destination << "\n";
-    std::cout << "Route:       " << row.route << "\n";
-    std::cout << "SID:         " << (row.sid.empty() ? "(none)" : row.sid) << "\n";
-    std::cout << "1st WPT:     " << (row.first_waypoint.empty() ? "(none)" : row.first_waypoint) << "\n";
-    std::cout << "SID suffix:  " << (row.sid_suffix.empty() ? "(none)" : row.sid_suffix) << "\n";
-    std::cout << "RFL:         FL" << (row.rfl / 100) << "\n";
-    std::cout << "Sim time:    day=" << simDay << " " << simHour << ":" << simMin << " UTC\n";
-    std::cout << "\n";
+    printHeader();
 
     if (!result.sid_found) {
         std::cout << "RESULT: FAIL — no matching SID / departure route found in " << row.origin << "\n";
-        std::cout << "        Check that first_waypoint matches a SID entry in out.json.\n";
+        std::cout << "        Check that first_waypoint matches a SID entry in out.json.\n\n";
         return 1;
     }
 
     if (!result.sid_level_pass) {
         std::cout << "RESULT: FAIL — SID-level restriction blocked this flight plan\n";
-        std::cout << "        (engine type, suffix, time window, or banned-type restriction)\n";
+        std::cout << "        (engine type, suffix, time window, or banned-type restriction)\n\n";
         return 1;
     }
 
-    // Syntax errors and missing route text are surfaced as a SYN advisory.
-    // The plugin sets VF_SYNTAX=ERR and continues with rounds 1 and 2 as no-ops;
-    // overall_pass still reflects the outcome of the remaining rounds.
-    if (!have_route_text) {
-        std::cout << "SYN ADVISORY: no route text supplied — rounds 1=exit and 2=route were skipped\n\n";
-    } else if (!result.syntax_ok) {
+    // Syntax errors are a SYN advisory: plugin sets VF_SYNTAX="Invalid Syntax"
+    // (not "ERR"), continues with rounds 1 and 2 as no-ops, and lets the
+    // constraint rounds determine overall pass/fail.
+    if (!result.syntax_ok) {
         std::cout << "SYN ADVISORY: route syntax error — " << result.syntax_error << "\n";
         std::cout << "              (rounds 1=exit and 2=route were skipped; other rounds still ran)\n\n";
     }
 
-    const bool has_syn = !have_route_text || !result.syntax_ok;
     if (result.overall_pass) {
-        std::cout << "RESULT: " << (has_syn ? "PASS (with SYN)" : "PASS")
+        std::cout << "RESULT: " << (result.syntax_ok ? "PASS" : "PASS (with SYN)")
                   << " — all 7 constraint rounds completed\n";
         if (result.warns) {
             std::cout << "        WARNING — at least one alert-type constraint triggered\n";
