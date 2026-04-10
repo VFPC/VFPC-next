@@ -20,8 +20,6 @@
 //     "route":         "UMLAT1F UMLAT DCT GIBSO N601 BAGSO DCT STU",
 //     "route_points":  ["UMLAT", "N601", "BAGSO", "STU"],
 //     "sid":           "UMLAT1F",
-//     "sid_suffix":    "F",
-//     "first_waypoint":"UMLAT",
 //     "aircraft_type": "B738",
 //     "engine_type":   "J",
 //     "rfl":           36000,
@@ -31,11 +29,27 @@
 //     "sim_min":       30
 //   }
 //
+//   sid_suffix and first_waypoint are derived automatically from sid using the
+//   same logic as the live plugin (ParseFlightPlanRow_ in analyzeFP.cpp):
+//     - Strip '#' from sid
+//     - EGLL + sid=="CHK" → first_waypoint="CPT", sid_suffix="CHK"
+//     - Otherwise: first_waypoint = letters before the first digit of sid;
+//                  sid_suffix = last character of sid
+//   Supply first_waypoint/sid_suffix explicitly in JSON only to override.
+//
 //   route_points is the raw tokenised route (space-split of route, with speed/
 //   level groups, DCT tokens etc still present — same as what the plugin reads
-//   from EuroScope).  sim_day uses Monday=0 convention.  Omit sim_* to default
-//   to Monday 12:00 UTC.
+//   from EuroScope).  Omit it to auto-tokenise from route.
+//   sim_day uses Monday=0 convention.  Omit sim_* to default to Monday 12:00 UTC.
+//
+// SYNTAX ADVISORY
+//   A route syntax error (SYN) does not cause a hard FAIL by itself.  The plugin
+//   marks it as a SYN advisory and continues evaluating the remaining constraint
+//   rounds (with rounds 1 and 2 as no-ops).  vfpc_check matches this behaviour:
+//   PASS/FAIL is determined by the constraint rounds; SYN is reported separately.
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -72,9 +86,12 @@ static void printHelp(const char* argv0)
         "flightplan    JSON object describing the flight.  See header comment for fields.\n"
         "\n"
         "Exit codes:\n"
-        "  0  PASS — all 7 constraint rounds completed\n"
+        "  0  PASS — all 7 constraint rounds completed (SYN advisory may still be printed)\n"
         "  1  FAIL — constraint or SID-level gate eliminated all options\n"
-        "  2  ERROR — bad arguments, unreadable files, or JSON parse failure\n";
+        "  2  ERROR — bad arguments, unreadable files, or JSON parse failure\n"
+        "\n"
+        "SYN advisory: a route syntax error is reported but does not itself cause exit 1.\n"
+        "The plugin marks SYN and continues; vfpc_check matches that behaviour.\n";
 }
 
 static std::string slurpStream(std::istream& in)
@@ -117,6 +134,71 @@ static bool boolMember(const rapidjson::Value& obj, const char* key, bool def = 
     auto it = obj.FindMember(key);
     if (it == obj.MemberEnd() || !it->value.IsBool()) return def;
     return it->value.GetBool();
+}
+
+// Check whether a JSON object has a non-empty string member for the given key.
+static bool hasStrMember(const rapidjson::Value& obj, const char* key)
+{
+    auto it = obj.FindMember(key);
+    return it != obj.MemberEnd() && it->value.IsString() && it->value.GetStringLength() > 0;
+}
+
+static std::string toUpper(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    return s;
+}
+
+// ---------------------------------------------------------------------------
+// normaliseSidFields
+//
+// Mirrors ParseFlightPlanRow_ in analyzeFP.cpp.
+//
+// After reading raw JSON fields:
+//   1. Uppercase origin, destination, sid, aircraft_type, engine_type.
+//      Uppercase each token in route_points.
+//   2. Strip '#' from sid.
+//   3. Derive first_waypoint and sid_suffix from sid unless the caller
+//      explicitly supplied them in the JSON (hasExplicitFirst / hasExplicitSuffix).
+//
+// The EGLL/CHK special case is included verbatim from analyzeFP.cpp line 2014.
+// ---------------------------------------------------------------------------
+static void normaliseSidFields(FlightPlanRow& row,
+                                bool hasExplicitFirst,
+                                bool hasExplicitSuffix)
+{
+    // 1. Uppercase string fields.
+    row.origin        = toUpper(row.origin);
+    row.destination   = toUpper(row.destination);
+    row.sid           = toUpper(row.sid);
+    row.aircraft_type = toUpper(row.aircraft_type);
+    row.engine_type   = toUpper(row.engine_type);
+    if (hasExplicitFirst)  row.first_waypoint = toUpper(row.first_waypoint);
+    if (hasExplicitSuffix) row.sid_suffix      = toUpper(row.sid_suffix);
+    for (auto& tok : row.route_points) tok = toUpper(tok);
+
+    // 2. Strip '#' from sid (EuroScope sometimes appends it).
+    row.sid.erase(std::remove(row.sid.begin(), row.sid.end(), '#'), row.sid.end());
+
+    // 3. Derive first_waypoint / sid_suffix from sid when not explicitly given.
+    if (!row.sid.empty() && (!hasExplicitFirst || !hasExplicitSuffix)) {
+        if (row.origin == "EGLL" && row.sid == "CHK") {
+            if (!hasExplicitFirst)  row.first_waypoint = "CPT";
+            if (!hasExplicitSuffix) row.sid_suffix      = "CHK";
+        } else {
+            if (!hasExplicitFirst) {
+                // first_waypoint = leading alpha characters before the first digit.
+                const auto digit_pos = row.sid.find_first_of("0123456789");
+                row.first_waypoint = (digit_pos != std::string::npos)
+                    ? row.sid.substr(0, digit_pos)
+                    : row.sid;
+            }
+            if (!hasExplicitSuffix && !row.sid.empty()) {
+                row.sid_suffix = std::string(1, row.sid.back());
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +253,11 @@ int main(int argc, char** argv)
     }
 
     // ---- Build FlightPlanRow ----
+    // Track which optional SID-derived fields were explicitly supplied so that
+    // normaliseSidFields() only overwrites the ones the caller left absent.
+    const bool hasExplicitFirst  = hasStrMember(fpDoc, "first_waypoint");
+    const bool hasExplicitSuffix = hasStrMember(fpDoc, "sid_suffix");
+
     FlightPlanRow row;
     row.callsign      = strMember(fpDoc, "callsign");
     row.origin        = strMember(fpDoc, "origin");
@@ -210,6 +297,11 @@ int main(int argc, char** argv)
     if (row.destination.empty()) {
         std::cerr << "ERROR: flight plan missing \"destination\"\n"; return 2;
     }
+
+    // ---- Normalise inputs to match plugin behaviour ----
+    // Uppercases fields, strips '#' from sid, derives first_waypoint and
+    // sid_suffix from sid (mirrors ParseFlightPlanRow_ in analyzeFP.cpp).
+    normaliseSidFields(row, hasExplicitFirst, hasExplicitSuffix);
 
     // ---- Unwrap the {cycle, airports:[...]} envelope if present ----
     // The parser produces an envelope object; the plugin strips it on ingest.
@@ -252,6 +344,7 @@ int main(int argc, char** argv)
     std::cout << "Route:       " << row.route << "\n";
     std::cout << "SID:         " << (row.sid.empty() ? "(none)" : row.sid) << "\n";
     std::cout << "1st WPT:     " << (row.first_waypoint.empty() ? "(none)" : row.first_waypoint) << "\n";
+    std::cout << "SID suffix:  " << (row.sid_suffix.empty() ? "(none)" : row.sid_suffix) << "\n";
     std::cout << "RFL:         FL" << (row.rfl / 100) << "\n";
     std::cout << "Sim time:    day=" << simDay << " " << simHour << ":" << simMin << " UTC\n";
     std::cout << "\n";
@@ -268,13 +361,18 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    // Syntax errors are surfaced as a SYN advisory, not a hard stop.
+    // The live plugin continues evaluating the remaining constraint rounds with
+    // rounds 1 and 2 as no-ops; overall_pass still reflects the round outcome.
     if (!result.syntax_ok) {
-        std::cout << "RESULT: FAIL — route syntax error: " << result.syntax_error << "\n";
-        return 1;
+        std::cout << "SYN ADVISORY: route syntax error — " << result.syntax_error << "\n";
+        std::cout << "              (rounds 1=exit and 2=route were skipped; other rounds still ran)\n";
+        std::cout << "\n";
     }
 
     if (result.overall_pass) {
-        std::cout << "RESULT: PASS — all 7 constraint rounds completed\n";
+        std::cout << "RESULT: " << (!result.syntax_ok ? "PASS (with SYN)" : "PASS")
+                  << " — all 7 constraint rounds completed\n";
         if (result.warns) {
             std::cout << "        WARNING — at least one alert-type constraint triggered\n";
         }
@@ -282,7 +380,6 @@ int main(int argc, char** argv)
         std::cout << "RESULT: FAIL — eliminated at round " << result.fail_round << "\n";
         std::cout << "        (rounds: 0=dest 1=exit 2=route 3=restrictions 4=FL 5=direction 6=alerts)\n";
 
-        // Which constraints survived the last completed round?
         if (!result.constraint_validity.empty()) {
             bool anyPass = false;
             for (bool b : result.constraint_validity) if (b) { anyPass = true; break; }

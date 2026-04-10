@@ -5,8 +5,6 @@
   "route":          "BPK1F BPK BKY BUSTA LOREL",
   "route_points":   ["BPK1F", "BPK", "BKY", "BUSTA", "LOREL"],
   "sid":            "BPK1F",
-  "sid_suffix":     "F",
-  "first_waypoint": "BPK",
   "aircraft_type":  "B738",
   "engine_type":    "J",
   "rfl":            7000,
