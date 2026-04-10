@@ -29,13 +29,14 @@
 //     "sim_min":       30
 //   }
 //
-//   sid_suffix and first_waypoint are derived automatically from sid using the
-//   same logic as the live plugin (ParseFlightPlanRow_ in analyzeFP.cpp):
+//   sid_suffix and first_waypoint are always derived from sid using the same
+//   logic as the live plugin (ParseFlightPlanRow_ in analyzeFP.cpp):
 //     - Strip '#' from sid
 //     - EGLL + sid=="CHK" → first_waypoint="CPT", sid_suffix="CHK"
 //     - Otherwise: first_waypoint = letters before the first digit of sid;
 //                  sid_suffix = last character of sid
-//   Supply first_waypoint/sid_suffix explicitly in JSON only to override.
+//   Any first_waypoint or sid_suffix values in the JSON are ignored — the
+//   plugin never allows callers to override these fields.
 //
 //   route_points is the raw tokenised route (space-split of route, with speed/
 //   level groups, DCT tokens etc still present — same as what the plugin reads
@@ -161,13 +162,6 @@ static bool boolMember(const rapidjson::Value& obj, const char* key, bool def = 
     return it->value.GetBool();
 }
 
-// Check whether a JSON object has a non-empty string member for the given key.
-static bool hasStrMember(const rapidjson::Value& obj, const char* key)
-{
-    auto it = obj.FindMember(key);
-    return it != obj.MemberEnd() && it->value.IsString() && it->value.GetStringLength() > 0;
-}
-
 static std::string toUpper(std::string s)
 {
     std::transform(s.begin(), s.end(), s.begin(),
@@ -178,20 +172,20 @@ static std::string toUpper(std::string s)
 // ---------------------------------------------------------------------------
 // normaliseSidFields
 //
-// Mirrors ParseFlightPlanRow_ in analyzeFP.cpp.
+// Exact mirror of ParseFlightPlanRow_ in analyzeFP.cpp.
 //
-// After reading raw JSON fields:
-//   1. Uppercase origin, destination, sid, aircraft_type, engine_type.
-//      Uppercase each token in route_points.
-//   2. Strip '#' from sid.
-//   3. Derive first_waypoint and sid_suffix from sid unless the caller
-//      explicitly supplied them in the JSON (hasExplicitFirst / hasExplicitSuffix).
+//   1. Uppercase origin, destination, sid, aircraft_type, engine_type, and
+//      each token in route_points.
+//   2. Strip '#' from sid (EuroScope sometimes appends it).
+//   3. Always derive first_waypoint and sid_suffix from sid — any values
+//      supplied in the JSON are ignored.  The plugin never allows callers to
+//      override these fields; they are always computed from the SID name.
+//      Accepting overrides would let hand-written JSON produce combinations
+//      the plugin cannot reach, breaking the plugin-equivalence contract.
 //
 // The EGLL/CHK special case is included verbatim from analyzeFP.cpp line 2014.
 // ---------------------------------------------------------------------------
-static void normaliseSidFields(FlightPlanRow& row,
-                                bool hasExplicitFirst,
-                                bool hasExplicitSuffix)
+static void normaliseSidFields(FlightPlanRow& row)
 {
     // 1. Uppercase string fields.
     row.origin        = toUpper(row.origin);
@@ -199,29 +193,25 @@ static void normaliseSidFields(FlightPlanRow& row,
     row.sid           = toUpper(row.sid);
     row.aircraft_type = toUpper(row.aircraft_type);
     row.engine_type   = toUpper(row.engine_type);
-    if (hasExplicitFirst)  row.first_waypoint = toUpper(row.first_waypoint);
-    if (hasExplicitSuffix) row.sid_suffix      = toUpper(row.sid_suffix);
     for (auto& tok : row.route_points) tok = toUpper(tok);
 
     // 2. Strip '#' from sid (EuroScope sometimes appends it).
     row.sid.erase(std::remove(row.sid.begin(), row.sid.end(), '#'), row.sid.end());
 
-    // 3. Derive first_waypoint / sid_suffix from sid when not explicitly given.
-    if (!row.sid.empty() && (!hasExplicitFirst || !hasExplicitSuffix)) {
+    // 3. Always derive first_waypoint and sid_suffix from sid.
+    row.first_waypoint.clear();
+    row.sid_suffix.clear();
+    if (!row.sid.empty()) {
         if (row.origin == "EGLL" && row.sid == "CHK") {
-            if (!hasExplicitFirst)  row.first_waypoint = "CPT";
-            if (!hasExplicitSuffix) row.sid_suffix      = "CHK";
+            row.first_waypoint = "CPT";
+            row.sid_suffix     = "CHK";
         } else {
-            if (!hasExplicitFirst) {
-                // first_waypoint = leading alpha characters before the first digit.
-                const auto digit_pos = row.sid.find_first_of("0123456789");
-                row.first_waypoint = (digit_pos != std::string::npos)
-                    ? row.sid.substr(0, digit_pos)
-                    : row.sid;
-            }
-            if (!hasExplicitSuffix && !row.sid.empty()) {
-                row.sid_suffix = std::string(1, row.sid.back());
-            }
+            // first_waypoint = leading alpha characters before the first digit.
+            const auto digit_pos = row.sid.find_first_of("0123456789");
+            row.first_waypoint = (digit_pos != std::string::npos)
+                ? row.sid.substr(0, digit_pos)
+                : row.sid;
+            row.sid_suffix = std::string(1, row.sid.back());
         }
     }
 }
@@ -278,19 +268,14 @@ int main(int argc, char** argv)
     }
 
     // ---- Build FlightPlanRow ----
-    // Track which optional SID-derived fields were explicitly supplied so that
-    // normaliseSidFields() only overwrites the ones the caller left absent.
-    const bool hasExplicitFirst  = hasStrMember(fpDoc, "first_waypoint");
-    const bool hasExplicitSuffix = hasStrMember(fpDoc, "sid_suffix");
-
+    // Note: first_waypoint and sid_suffix are NOT read from JSON here.
+    // normaliseSidFields() always derives them from sid, matching the plugin.
     FlightPlanRow row;
     row.callsign      = strMember(fpDoc, "callsign");
     row.origin        = strMember(fpDoc, "origin");
     row.destination   = strMember(fpDoc, "destination");
     row.route         = strMember(fpDoc, "route");
     row.sid           = strMember(fpDoc, "sid");
-    row.sid_suffix    = strMember(fpDoc, "sid_suffix");
-    row.first_waypoint= strMember(fpDoc, "first_waypoint");
     row.aircraft_type = strMember(fpDoc, "aircraft_type");
     row.engine_type   = strMember(fpDoc, "engine_type");
     row.rfl           = intMember(fpDoc, "rfl");
@@ -315,24 +300,13 @@ int main(int argc, char** argv)
     const int simHour = intMember(fpDoc, "sim_hour", 12);
     const int simMin  = intMember(fpDoc, "sim_min",  0);
 
-    // ---- Required-field validation — mirrors plugin ERR gates ----
-    // origin: needed to locate the airport in out.json (exit 2 — tool error).
-    // destination and route/route_points: plugin sets VF_*=ERR and
-    // FinalizeValidationResult_ treats ERR as a hard failure regardless of
-    // constraint rounds.  We mirror that with exit 1 here.
-    if (row.origin.empty()) {
-        std::cerr << "ERROR: flight plan missing \"origin\"\n"; return 2;
-    }
-
     // ---- Normalise inputs to match plugin behaviour ----
-    // Uppercases fields, strips '#' from sid, derives first_waypoint and
-    // sid_suffix from sid (mirrors ParseFlightPlanRow_ in analyzeFP.cpp).
-    normaliseSidFields(row, hasExplicitFirst, hasExplicitSuffix);
+    // Uppercases fields, strips '#' from sid, always derives first_waypoint
+    // and sid_suffix from sid (mirrors ParseFlightPlanRow_ in analyzeFP.cpp).
+    normaliseSidFields(row);
 
-    // Destination and route checks come after normalisation so that the
-    // printed header shows the uppercased values.
-    const bool have_route_text   = !row.route.empty();
-    const bool have_route_points = !row.route_points.empty();
+    // Boolean flags used by ERR gates and advisory paths below.
+    const bool have_route_text = !row.route.empty();
 
     // ---- Print flight plan header ----
     // Emitted before all short-circuit exits so Peter always sees what was
@@ -357,6 +331,17 @@ int main(int argc, char** argv)
         printHeader();
         std::cout << "NOT CHECKED (VFR) — plugin does not validate non-IFR flight plans.\n\n";
         return 0;
+    }
+
+    // ---- Origin ERR gate — mirrors analyzeFP.cpp line 1453 ----
+    // Plugin sets VF_ORIGIN="ERR" and VF_SID="ERR"; FinalizeValidationResult_
+    // treats ERR as a hard failure.  Unlike destination/route, missing origin
+    // also prevents the airport lookup, so we short-circuit here too — but as
+    // exit 1 (validation failure), not exit 2 (tool error).
+    if (row.origin.empty()) {
+        printHeader();
+        std::cout << "ERR: origin missing — plugin marks VF_ORIGIN=ERR and VF_SID=ERR (hard failure).\n\n";
+        return 1;
     }
 
     // ---- Destination ERR gate — mirrors analyzeFP.cpp line 1472 ----
