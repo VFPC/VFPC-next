@@ -1,0 +1,787 @@
+{
+  "format_version": 1,
+  "description": "Combined constraint evaluation fixtures. Each case runs all applicable check functions (destination, exit-point, route, min/max, direction, alerts) in sequence against a simulated flight. Add new cases here without recompiling.",
+  "cases": [
+    {
+      "id": "DEST_nodests_EG_blocks_EGLL",
+      "note": "Constraint excludes all EG airports — EGLL must fail",
+      "constraint": { "nodests": ["EG", "EI"], "min": 55, "max": 660 },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "DEST_nodests_EG_passes_LFPG",
+      "note": "Constraint excludes EG/EI — French airport must pass",
+      "constraint": { "nodests": ["EG", "EI"], "min": 55, "max": 660 },
+      "flight": { "destination": "LFPG", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "DEST_dests_allowlist_passes",
+      "note": "Constraint only allows EGPF/EGPK — EGPF must pass",
+      "constraint": { "dests": ["EGPF", "EGPK"] },
+      "flight": { "destination": "EGPF", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "DEST_dests_allowlist_blocks_other",
+      "note": "Constraint only allows EGPF/EGPK — EGLL must fail",
+      "constraint": { "dests": ["EGPF", "EGPK"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "EXIT_points_match",
+      "note": "Constraint requires exit via GOMUP — matching points pass",
+      "constraint": { "points": ["GOMUP"] },
+      "flight": { "destination": "LFPG", "points": ["GOMUP"], "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "EXIT_points_no_match",
+      "note": "Constraint requires exit via GOMUP — different point fails",
+      "constraint": { "points": ["GOMUP"] },
+      "flight": { "destination": "LFPG", "points": ["BALIX"], "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "EXIT_nopoints_blocks",
+      "note": "Constraint blocks GOMUP exit — must fail when GOMUP present",
+      "constraint": { "nopoints": ["GOMUP"] },
+      "flight": { "destination": "LFPG", "points": ["GOMUP"], "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "ROUTE_prefix_match",
+      "note": "Constraint requires EBOTO UN601 RIBEL prefix — matching route passes",
+      "constraint": { "route": ["EBOTO UN601 RIBEL"] },
+      "flight": { "destination": "LFPG", "route": ["EBOTO", "UN601", "RIBEL", "LATLO"], "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_prefix_no_match",
+      "note": "Constraint requires EBOTO UN601 RIBEL prefix — different airway fails",
+      "constraint": { "route": ["EBOTO UN601 RIBEL"] },
+      "flight": { "destination": "LFPG", "route": ["EBOTO", "DTY", "RIBEL"], "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "ROUTE_wildcard_passes_anything",
+      "note": "Wildcard route passes any route string",
+      "constraint": { "route": ["*"] },
+      "flight": { "destination": "LFPG", "route": ["EBOTO", "UN601"], "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_noroute_blocks",
+      "note": "noroute blocks a matching route",
+      "constraint": { "noroute": ["EBOTO UN601"] },
+      "flight": { "destination": "LFPG", "route": ["EBOTO", "UN601", "RIBEL"], "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "MINMAX_inside_band",
+      "note": "FL180 inside FL105-FL245 band — passes",
+      "constraint": { "min": 105, "max": 245 },
+      "flight": { "destination": "LFPG", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "MINMAX_below_min",
+      "note": "FL100 below FL105 min — fails",
+      "constraint": { "min": 105, "max": 245 },
+      "flight": { "destination": "LFPG", "rfl": 10000 },
+      "expected": false
+    },
+    {
+      "id": "MINMAX_above_max",
+      "note": "FL250 above FL245 max — fails",
+      "constraint": { "min": 105, "max": 245 },
+      "flight": { "destination": "LFPG", "rfl": 25000 },
+      "expected": false
+    },
+    {
+      "id": "MINMAX_fra_floor_only_passes",
+      "note": "FL245+ FRA-only constraint (min 245, no max) — FL250 passes",
+      "constraint": { "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 25000 },
+      "expected": true
+    },
+    {
+      "id": "MINMAX_fra_floor_only_below",
+      "note": "FL245+ FRA-only constraint — FL240 fails",
+      "constraint": { "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 24000 },
+      "expected": false
+    },
+    {
+      "id": "DIR_even_passes_fl360",
+      "note": "Even RVSM level — FL360 passes",
+      "constraint": { "dir": "even" },
+      "flight": { "destination": "LFPG", "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "DIR_even_fails_fl350",
+      "note": "Even RVSM level — FL350 fails",
+      "constraint": { "dir": "even" },
+      "flight": { "destination": "LFPG", "rfl": 35000 },
+      "expected": false
+    },
+    {
+      "id": "DIR_odd_passes_fl350",
+      "note": "Odd RVSM level — FL350 passes",
+      "constraint": { "dir": "odd" },
+      "flight": { "destination": "LFPG", "rfl": 35000 },
+      "expected": true
+    },
+    {
+      "id": "ALERT_ban_blocks",
+      "note": "Ban alert — constraint must fail regardless of other fields",
+      "constraint": {
+        "alerts": [{ "srd": 440, "note": "Event-only route.", "warn": false, "ban": true }]
+      },
+      "flight": { "destination": "LFPG", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "ALERT_warn_passes",
+      "note": "Warn-only alert — constraint still passes (caller notes the warning separately)",
+      "constraint": {
+        "alerts": [{ "srd": 489, "note": "Pilot discretion.", "warn": true, "ban": false }]
+      },
+      "flight": { "destination": "LFPG", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "REAL_standard_upper_airway",
+      "note": "Typical upper-airway constraint: route prefix + FL band + even direction",
+      "constraint": {
+        "route": ["EBOTO UN601 RIBEL"],
+        "min": 250,
+        "max": 660,
+        "dir": "even"
+      },
+      "flight": {
+        "destination": "LFPG",
+        "route": ["EBOTO", "UN601", "RIBEL", "LATLO"],
+        "rfl": 36000
+      },
+      "expected": true
+    },
+    {
+      "id": "REAL_standard_upper_airway_wrong_level",
+      "note": "Same constraint — FL240 is even but below FL250 min: fails",
+      "constraint": {
+        "route": ["EBOTO UN601 RIBEL"],
+        "min": 250,
+        "max": 660,
+        "dir": "even"
+      },
+      "flight": {
+        "destination": "LFPG",
+        "route": ["EBOTO", "UN601", "RIBEL", "LATLO"],
+        "rfl": 24000
+      },
+      "expected": false
+    },
+    {
+      "id": "REAL_egph_y96_nateb_non_uk",
+      "note": "EGPH TLA Y96 NATEB to non-UK destination: constraint applies no-UK-dest filter with route prefix",
+      "constraint": {
+        "nodests": ["EG"],
+        "route": ["TLA Y96 NATEB"]
+      },
+      "flight": {
+        "destination": "EDDF",
+        "route": ["TLA", "Y96", "NATEB", "DCT", "GODOS"],
+        "rfl": 36000
+      },
+      "expected": true
+    },
+    {
+      "id": "REAL_egph_y96_nateb_to_uk",
+      "note": "Same constraint — UK destination EGNT is blocked by nodests EG",
+      "constraint": {
+        "nodests": ["EG"],
+        "route": ["TLA Y96 NATEB"]
+      },
+      "flight": {
+        "destination": "EGNT",
+        "route": ["TLA", "Y96", "NATEB"],
+        "rfl": 36000
+      },
+      "expected": false
+    },
+    {
+      "id": "REAL_fra_entry_blocks_irish",
+      "note": "FRA entry constraint: correct exit point + FL but blocked by nodests EI for Irish destination",
+      "constraint": {
+        "points": ["NIMAT"],
+        "nodests": ["EI"],
+        "min": 245
+      },
+      "flight": {
+        "destination": "EIDW",
+        "points": ["NIMAT"],
+        "rfl": 25000
+      },
+      "expected": false
+    },
+    {
+      "id": "REAL_fra_entry_passes_non_irish",
+      "note": "Same FRA entry constraint — non-Irish destination passes",
+      "constraint": {
+        "points": ["NIMAT"],
+        "nodests": ["EI"],
+        "min": 245
+      },
+      "flight": {
+        "destination": "LFPG",
+        "points": ["NIMAT"],
+        "rfl": 25000
+      },
+      "expected": true
+    },
+    {
+      "id": "REAL_fra_entry_below_floor",
+      "note": "FRA entry — correct exit point and destination but below FL245 floor",
+      "constraint": {
+        "points": ["NIMAT"],
+        "nodests": ["EI"],
+        "min": 245
+      },
+      "flight": {
+        "destination": "LFPG",
+        "points": ["NIMAT"],
+        "rfl": 24000
+      },
+      "expected": false
+    },
+
+    {
+      "id": "TIMED_fri_mon_active_sat_blocks",
+      "note": "Friday-Monday time window. Simtime=Saturday 12:00 (inside window). Constraint blocks EG — should fail.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "TIMED_fri_mon_inactive_tue_passes",
+      "note": "Same window, simtime=Tuesday 12:00 (outside). Constraint doesn't apply — should pass.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 1, "hour": 12, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "TIMED_fri_mon_inactive_wed_passes",
+      "note": "Same window, simtime=Wednesday 12:00 (outside). Constraint doesn't apply — should pass.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 2, "hour": 12, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "TIMED_active_correct_dest_passes",
+      "note": "Window active (Saturday). Constraint only allows EGPF/EGPK. Destination EGPF — should pass.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 14, "min": 0 },
+      "constraint": { "dests": ["EGPF", "EGPK"] },
+      "flight": { "destination": "EGPF", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "TIMED_active_wrong_dest_fails",
+      "note": "Window active (Saturday). Constraint only allows EGPF/EGPK. Destination EGLL — should fail.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 14, "min": 0 },
+      "constraint": { "dests": ["EGPF", "EGPK"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "TIMED_inactive_wrong_dest_passes",
+      "note": "Window inactive (Tuesday). Same constraint — doesn't apply, so EGLL passes.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 1, "hour": 14, "min": 0 },
+      "constraint": { "dests": ["EGPF", "EGPK"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": true
+    },
+    {
+      "id": "TIMED_same_day_inside_blocks",
+      "note": "Monday 09:00-16:15. Simtime=Monday 10:00 (inside). Constraint blocks EG — should fail.",
+      "timewindow": { "start": { "date": 0, "time": "0900" }, "end": { "date": 0, "time": "1615" } },
+      "simtime": { "day": 0, "hour": 10, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": false
+    },
+    {
+      "id": "TIMED_same_day_outside_passes",
+      "note": "Monday 09:00-16:15. Simtime=Tuesday 10:00 (outside, wrong day). Constraint doesn't apply.",
+      "timewindow": { "start": { "date": 0, "time": "0900" }, "end": { "date": 0, "time": "1615" } },
+      "simtime": { "day": 1, "hour": 10, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 18000 },
+      "expected": true
+    },
+
+    {
+      "id": "FL_min245_at_boundary_passes",
+      "note": "FL245 minimum, rfl exactly FL245 (24500 ft). Inclusive lower boundary — must pass.",
+      "constraint": { "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 24500 },
+      "expected": true
+    },
+    {
+      "id": "FL_min245_one_below_fails",
+      "note": "FL245 minimum, rfl=FL244 (24400 ft). One level below inclusive boundary — must fail.",
+      "constraint": { "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 24400 },
+      "expected": false
+    },
+    {
+      "id": "FL_min245_above_passes",
+      "note": "FL245 minimum, rfl=FL350 (35000 ft). Well above floor — must pass.",
+      "constraint": { "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 35000 },
+      "expected": true
+    },
+    {
+      "id": "FL_max360_at_boundary_passes",
+      "note": "FL360 ceiling, rfl exactly FL360 (36000 ft). Inclusive upper boundary — must pass.",
+      "constraint": { "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "FL_max360_one_above_fails",
+      "note": "FL360 ceiling, rfl=FL370 (37000 ft). One level above inclusive ceiling — must fail.",
+      "constraint": { "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 37000 },
+      "expected": false
+    },
+    {
+      "id": "FL_band_245_360_at_lower_bound_passes",
+      "note": "Band FL245-FL360. rfl=FL245 (lower boundary, inclusive) — must pass.",
+      "constraint": { "min": 245, "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 24500 },
+      "expected": true
+    },
+    {
+      "id": "FL_band_245_360_below_lower_fails",
+      "note": "Band FL245-FL360. rfl=FL244 (one below lower boundary) — must fail.",
+      "constraint": { "min": 245, "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 24400 },
+      "expected": false
+    },
+    {
+      "id": "FL_band_245_360_at_upper_bound_passes",
+      "note": "Band FL245-FL360. rfl=FL360 (upper boundary, inclusive) — must pass.",
+      "constraint": { "min": 245, "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "FL_band_245_360_above_upper_fails",
+      "note": "Band FL245-FL360. rfl=FL370 (one above upper boundary) — must fail.",
+      "constraint": { "min": 245, "max": 360 },
+      "flight": { "destination": "LFPG", "rfl": 37000 },
+      "expected": false
+    },
+
+    {
+      "id": "ROUTE_prefix_shorter_than_route_passes",
+      "note": "Pattern 'TLA Y96' (2 tokens) is a prefix of a 5-waypoint route — prefix match must pass.",
+      "constraint": { "route": ["TLA Y96"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB", "DCT", "GODOS"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_prefix_exact_length_passes",
+      "note": "Pattern 'TLA Y96 NATEB' (3 tokens) matches all 3 waypoints exactly — must pass.",
+      "constraint": { "route": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_diverges_at_second_waypoint_fails",
+      "note": "First waypoint matches (TLA) but second diverges (UL9 vs Y96) — must fail.",
+      "constraint": { "route": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "UL9", "NATEB", "GODOS"], "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ROUTE_pattern_longer_than_flight_fails",
+      "note": "Pattern has 3 tokens, flight route only has 2 — pattern skipped, no match, must fail.",
+      "constraint": { "route": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96"], "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ROUTE_wildcard_full_pattern_matches_any",
+      "note": "Constraint route=['*']. Wildcard matches any route — must pass regardless of waypoints.",
+      "constraint": { "route": ["*"] },
+      "flight": { "destination": "LFPG", "route": ["TOBIX", "UL9", "BABAN"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_wildcard_token_in_middle_passes",
+      "note": "Pattern 'TLA * NATEB': middle token is wildcard. Route [TLA, Y96, NATEB] — must pass.",
+      "constraint": { "route": ["TLA * NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_lowercase_pattern_matches_uppercase_flight",
+      "note": "Pattern is lowercase 'tla y96 nateb' in JSON; cc_routeHas uppercases patterns before compare. Must pass.",
+      "constraint": { "route": ["tla y96 nateb"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_noroute_blocks_matching_flight",
+      "note": "noroute=['TLA Y96 NATEB']. Flight uses that route — constraint must block it.",
+      "constraint": { "noroute": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ROUTE_noroute_allows_non_matching_flight",
+      "note": "noroute=['TLA Y96 NATEB']. Flight uses a different route — constraint must pass.",
+      "constraint": { "noroute": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TOBIX", "UL9", "NATEB"], "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ROUTE_multi_pattern_second_matches",
+      "note": "Two patterns: 'TOBIX UL9' and 'TLA Y96'. Flight starts TLA Y96 — second pattern matches, must pass.",
+      "constraint": { "route": ["TOBIX UL9", "TLA Y96"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": true
+    },
+
+    {
+      "id": "SRD_row2361_egaa_aloti_valid_passes",
+      "source": "SrdTraceSemanticTests Row 2361 (EGAA Exit=ALOTI, min=255, dir=odd, nodests=[EG,EI], route=[BLACA P600 TRN])",
+      "note": "FL270 (odd), correct route prefix, non-EG/EI dest, no exit-point constraint — must pass.",
+      "constraint": { "dir": "odd", "min": 255, "nodests": ["EG", "EI"], "route": ["BLACA P600 TRN"] },
+      "flight": { "destination": "LFPG", "route": ["BLACA", "P600", "TRN", "KONAN"], "rfl": 27000 },
+      "expected": true
+    },
+    {
+      "id": "SRD_row2361_egaa_aloti_eg_dest_fails",
+      "source": "SrdTraceSemanticTests Row 2361 — same constraint, destination in EG block",
+      "note": "EGLL is blocked by nodests=[EG]. Otherwise-valid flight — must fail.",
+      "constraint": { "dir": "odd", "min": 255, "nodests": ["EG", "EI"], "route": ["BLACA P600 TRN"] },
+      "flight": { "destination": "EGLL", "route": ["BLACA", "P600", "TRN"], "rfl": 27000 },
+      "expected": false
+    },
+    {
+      "id": "SRD_row2361_egaa_aloti_even_fl_fails",
+      "source": "SrdTraceSemanticTests Row 2361 — same constraint, wrong RVSM direction",
+      "note": "FL260 is EVEN (26000/1000=26, 26%2=0). Constraint requires ODD — must fail.",
+      "constraint": { "dir": "odd", "min": 255, "nodests": ["EG", "EI"], "route": ["BLACA P600 TRN"] },
+      "flight": { "destination": "LFPG", "route": ["BLACA", "P600", "TRN"], "rfl": 26000 },
+      "expected": false
+    },
+
+    {
+      "id": "SRD_row2357_egaa_adodo_warn_passes",
+      "source": "SrdTraceSemanticTests Row 2357 (EGAA Exit=ADODO, Note 489, warn=true, ban=false, min=255, dir=even)",
+      "note": "Warn-only alert (srd=489). warn does not set ban, so evaluator must return true.",
+      "constraint": { "dir": "even", "min": 255, "nodests": ["EG", "EI"], "route": ["BELZU AMCON"], "alerts": [{"srd": 489, "warn": true}] },
+      "flight": { "destination": "LFPG", "route": ["BELZU", "AMCON", "UNOKO"], "rfl": 26000 },
+      "expected": true
+    },
+    {
+      "id": "SRD_row2357_egaa_adodo_ei_dest_fails",
+      "source": "SrdTraceSemanticTests Row 2357 — same constraint, destination in EI block",
+      "note": "EIDW is blocked by nodests=[EI]. Warn alert present but dest check fires first — must fail.",
+      "constraint": { "dir": "even", "min": 255, "nodests": ["EG", "EI"], "route": ["BELZU AMCON"], "alerts": [{"srd": 489, "warn": true}] },
+      "flight": { "destination": "EIDW", "route": ["BELZU", "AMCON"], "rfl": 26000 },
+      "expected": false
+    },
+
+    {
+      "id": "SRD_row3849_egbb_ban_variant_always_fails",
+      "source": "SrdTraceSemanticTests Row 3849 (EGBB CDR ban variant, Notes 470+511, alerts=[ban470, warn511])",
+      "note": "Ban alert (srd=470) is present. checkOneAlerts returns false regardless of dest/dir — must fail.",
+      "constraint": { "nodests": ["EG", "EI"], "dir": "even", "min": 245, "alerts": [{"srd": 470, "ban": true}, {"srd": 511, "warn": true}] },
+      "flight": { "destination": "LFPG", "rfl": 26000 },
+      "expected": false
+    },
+
+    {
+      "id": "SRD_row2374_egaa_note172_active_window_passes",
+      "source": "SrdTraceSemanticTests Row 2374 (EGAA Exit=BIGNO, Note 172, min=155 max=175, dir=odd, Fri16:00-Sun07:45)",
+      "note": "Time window active (Saturday noon inside Fri-Sun). FL155 (odd, at lower bound). Full route prefix matches — must pass.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": {
+        "dir": "odd", "min": 155, "max": 175,
+        "nodests": ["EG", "EI"],
+        "route": ["LISBO L603 PEPOD L15 RISLA N862 PACSE EXMOR N92 DAWLY L149"],
+        "points": ["BIGNO"]
+      },
+      "flight": {
+        "destination": "LFPG",
+        "route": ["LISBO", "L603", "PEPOD", "L15", "RISLA", "N862", "PACSE", "EXMOR", "N92", "DAWLY", "L149", "EGNX"],
+        "points": ["BIGNO"],
+        "rfl": 15500
+      },
+      "expected": true
+    },
+    {
+      "id": "SRD_row2374_egaa_note172_above_max_fails",
+      "source": "SrdTraceSemanticTests Row 2374 — same window active, FL180 exceeds max=175",
+      "note": "Time window active (Saturday). FL180 (18000/100=180 > max 175) — must fail.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": {
+        "dir": "odd", "min": 155, "max": 175,
+        "nodests": ["EG", "EI"],
+        "route": ["LISBO L603 PEPOD L15 RISLA N862 PACSE EXMOR N92 DAWLY L149"],
+        "points": ["BIGNO"]
+      },
+      "flight": {
+        "destination": "LFPG",
+        "route": ["LISBO", "L603", "PEPOD", "L15", "RISLA", "N862", "PACSE", "EXMOR", "N92", "DAWLY", "L149", "EGNX"],
+        "points": ["BIGNO"],
+        "rfl": 18000
+      },
+      "expected": false
+    },
+    {
+      "id": "SRD_row2374_egaa_note172_inactive_window_passes",
+      "source": "SrdTraceSemanticTests Row 2374 — same constraint, time window inactive on Tuesday",
+      "note": "Tuesday noon is outside Fri-Sun window. Constraint does not apply — must pass regardless of fields.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 1, "hour": 12, "min": 0 },
+      "constraint": {
+        "dir": "odd", "min": 155, "max": 175,
+        "nodests": ["EG", "EI"],
+        "route": ["LISBO L603 PEPOD L15 RISLA N862 PACSE EXMOR N92 DAWLY L149"],
+        "points": ["BIGNO"]
+      },
+      "flight": {
+        "destination": "LFPG",
+        "route": ["LISBO", "L603", "PEPOD", "L15", "RISLA", "N862", "PACSE", "EXMOR", "N92", "DAWLY", "L149", "EGNX"],
+        "points": ["BIGNO"],
+        "rfl": 15500
+      },
+      "expected": true
+    },
+
+    {
+      "id": "SRD_row3849_egbb_timenodests_active_lf_fails",
+      "source": "SrdTraceSemanticTests Row 3849 (EGBB CDR time+nodests variant: nodests=[EG,EI,LE,LF,LI])",
+      "note": "Time window active (Saturday). LFPG starts with 'LF' which is in nodests — must fail.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": { "nodests": ["EG", "EI", "LE", "LF", "LI"], "dir": "even", "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 26000 },
+      "expected": false
+    },
+    {
+      "id": "SRD_row3849_egbb_timedests_active_lemg_passes",
+      "source": "SrdTraceSemanticTests Row 3849 (EGBB CDR time+dests variant: dests=[LEMG,LFBZ], nodests=[EG,EI])",
+      "note": "Time window active (Saturday). LEMG is in dests list and not in nodests — must pass.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": { "dests": ["LEMG", "LFBZ"], "nodests": ["EG", "EI"], "dir": "even", "min": 245 },
+      "flight": { "destination": "LEMG", "rfl": 26000 },
+      "expected": true
+    },
+    {
+      "id": "SRD_row3849_egbb_timedests_active_lfpg_fails",
+      "source": "SrdTraceSemanticTests Row 3849 — same time+dests variant, dest not in allowed list",
+      "note": "Time window active. LFPG is not in dests=[LEMG,LFBZ] — prefix 'LFPG' does not match 'LFBZ' — must fail.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 0, "time": "0745" } },
+      "simtime": { "day": 5, "hour": 12, "min": 0 },
+      "constraint": { "dests": ["LEMG", "LFBZ"], "nodests": ["EG", "EI"], "dir": "even", "min": 245 },
+      "flight": { "destination": "LFPG", "rfl": 26000 },
+      "expected": false
+    },
+
+    {
+      "id": "ADVERS_time_start_boundary_exact_active",
+      "adversarial": "Catches mutation: '>=' -> '>' in afterStart. If boundary is non-inclusive, Fri 16:00 reads as inactive and the blocking constraint is missed.",
+      "note": "Window Fri16:00->Sun07:45. simtime=Friday exactly 16:00 (start boundary, inclusive). Window must be ACTIVE -> nodests blocks EGLL.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 4, "hour": 16, "min": 0 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ADVERS_time_one_min_before_start_inactive",
+      "adversarial": "Paired with ADVERS_time_start_boundary_exact_active. Confirms the window is correctly INACTIVE one minute before start.",
+      "note": "Window Fri16:00->Sun07:45. simtime=Friday 15:59 (one minute before start). Window must be INACTIVE -> constraint does not apply -> PASS.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 4, "hour": 15, "min": 59 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 36000 },
+      "expected": true
+    },
+    {
+      "id": "ADVERS_time_end_boundary_exact_active",
+      "adversarial": "Catches mutation: '<=' -> '<' in beforeEnd. If boundary is non-inclusive, Sun 07:45 reads as inactive and the constraint is silently dropped too early.",
+      "note": "Window Fri16:00->Sun07:45. simtime=Sunday exactly 07:45 (end boundary, inclusive). Window must be ACTIVE -> nodests blocks EGLL.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 6, "hour": 7, "min": 45 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ADVERS_time_one_min_after_end_inactive",
+      "adversarial": "Paired with ADVERS_time_end_boundary_exact_active. Confirms the window is correctly INACTIVE one minute after end.",
+      "note": "Window Fri16:00->Sun07:45. simtime=Sunday 07:46 (one minute after end). Window must be INACTIVE -> PASS.",
+      "timewindow": { "start": { "date": 4, "time": "1600" }, "end": { "date": 6, "time": "0745" } },
+      "simtime": { "day": 6, "hour": 7, "min": 46 },
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 36000 },
+      "expected": true
+    },
+
+    {
+      "id": "ADVERS_dest_substring_not_prefix_passes",
+      "adversarial": "Catches mutation: rfind(prefix,0) -> find(prefix,0) in cc_destPrefixMatch. With find(), 'LEGE'.find('EG',0) returns pos 1 (non-prefix match) and wrongly blocks a French airport. rfind(prefix,0) correctly enforces prefix-only matching.",
+      "note": "'EG' appears at position 1 in 'LEGE' but LEGE does not START with 'EG'. nodests=['EG'] must not block it.",
+      "constraint": { "nodests": ["EG"] },
+      "flight": { "destination": "LEGE", "rfl": 36000 },
+      "expected": true
+    },
+
+    {
+      "id": "ADVERS_max_zero_means_no_ceiling",
+      "adversarial": "Catches mutation: remove 'c[max].GetInt() > 0' guard in checkOneMinMax. Without the guard, max=0 computes (rfl/100) > 0 which is true for any positive FL, wrongly blocking all traffic.",
+      "note": "max=0 is the 'no upper ceiling' sentinel. FL360 must pass when max=0.",
+      "constraint": { "max": 0 },
+      "flight": { "destination": "LFPG", "rfl": 36000 },
+      "expected": true
+    },
+
+    {
+      "id": "ADVERS_route_and_noroute_specific_exclusion_fails",
+      "adversarial": "Tests that noroute (more specific) fires even when route (less specific) matches. A bug treating route-match as sufficient would return PASS incorrectly.",
+      "note": "constraint has route=['TLA Y96'] (2-token prefix) AND noroute=['TLA Y96 NATEB'] (3-token). Flight ['TLA','Y96','NATEB'] matches both: route passes (2-prefix match) but noroute also matches -> must FAIL.",
+      "constraint": { "route": ["TLA Y96"], "noroute": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "NATEB"], "rfl": 36000 },
+      "expected": false
+    },
+    {
+      "id": "ADVERS_route_and_noroute_escape_via_different_waypoint",
+      "adversarial": "Paired with ADVERS_route_and_noroute_specific_exclusion_fails. A different 3rd waypoint satisfies route but avoids noroute — must PASS.",
+      "note": "Same constraint. Flight ['TLA','Y96','ATSIX']: route=['TLA Y96'] matches (prefix), noroute=['TLA Y96 NATEB'] does not (ATSIX!=NATEB) -> must PASS.",
+      "constraint": { "route": ["TLA Y96"], "noroute": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96", "ATSIX"], "rfl": 36000 },
+      "expected": true
+    },
+
+    {
+      "id": "ADVERS_nodests_blocks_before_dests_whitelist",
+      "adversarial": "Catches mutation: swapping nodests/dests evaluation order. If dests were checked first, EGLL would pass the whitelist and the nodests block would be bypassed. nodests must fire first — dead combination.",
+      "note": "dests=['EGLL'] and nodests=['EG']. EGLL starts with 'EG' so nodests fires before dests can rescue it -> must FAIL.",
+      "constraint": { "dests": ["EGLL"], "nodests": ["EG"] },
+      "flight": { "destination": "EGLL", "rfl": 36000 },
+      "expected": false
+    },
+
+    {
+      "id": "ADVERS_noroute_pattern_longer_than_flight_ignored",
+      "adversarial": "Catches mutation: removing 'pattern.size() > rte.size()' guard in cc_routeHas. Without the guard, a too-long noroute pattern would access rte out-of-bounds, causing a crash or wrong result. The guard must silently skip it.",
+      "note": "noroute=['TLA Y96 NATEB'] (3 tokens). Flight route has only 2 waypoints ['TLA','Y96']. Pattern cannot match -> noroute not triggered -> must PASS.",
+      "constraint": { "noroute": ["TLA Y96 NATEB"] },
+      "flight": { "destination": "LFPG", "route": ["TLA", "Y96"], "rfl": 36000 },
+      "expected": true
+    },
+
+    {
+      "id": "NOPOINTS_clear_flight_passes",
+      "note": "Constraint blocks GOMUP exit. Flight exits via BALIX — not in nopoints list — must pass.",
+      "constraint": { "nopoints": ["GOMUP"] },
+      "flight": { "destination": "LFPG", "points": ["BALIX"], "rfl": 18000 },
+      "expected": true
+    },
+
+    {
+      "id": "NOPOINTS_wins_over_points_whitelist",
+      "note": "points=['GOMUP','BELZU'] (whitelist) and nopoints=['GOMUP'] (blacklist). Flight exits via GOMUP — whitelisted but also forbidden — nopoints fires and must FAIL. Tests that nopoints is evaluated after points whitelist match.",
+      "constraint": { "points": ["GOMUP", "BELZU"], "nopoints": ["GOMUP"] },
+      "flight": { "destination": "LFPG", "points": ["GOMUP"], "rfl": 18000 },
+      "expected": false
+    },
+
+    {
+      "id": "NOPOINTS_allowlisted_non_forbidden_passes",
+      "note": "points=['GOMUP','BELZU'] (whitelist) and nopoints=['GOMUP']. Flight exits via BELZU — whitelisted and NOT in nopoints — must pass. Confirms nopoints only fires when the specific forbidden point is used.",
+      "constraint": { "points": ["GOMUP", "BELZU"], "nopoints": ["GOMUP"] },
+      "flight": { "destination": "LFPG", "points": ["BELZU"], "rfl": 18000 },
+      "expected": true
+    },
+
+    {
+      "id": "DIR_above_FL410_EVEN_FL430_passes",
+      "note": "Above RVSM_UPPER (FL410): EVEN uses formula ((rfl-41000)/1000)%4==2. FL430=(43000-41000)/1000=2, 2%4=2 -> PASS.",
+      "constraint": { "dir": "EVEN" },
+      "flight": { "destination": "LFPG", "rfl": 43000 },
+      "expected": true
+    },
+
+    {
+      "id": "DIR_above_FL410_ODD_FL430_fails",
+      "note": "Above RVSM_UPPER: ODD uses ((rfl-41000)/1000)%4==0. FL430=2%4=2!=0 -> FAIL. FL430 is the EVEN slot above FL410.",
+      "constraint": { "dir": "ODD" },
+      "flight": { "destination": "LFPG", "rfl": 43000 },
+      "expected": false
+    },
+
+    {
+      "id": "DIR_above_FL410_ODD_FL450_passes",
+      "note": "Above RVSM_UPPER: ODD uses ((rfl-41000)/1000)%4==0. FL450=(45000-41000)/1000=4, 4%4=0 -> PASS.",
+      "constraint": { "dir": "ODD" },
+      "flight": { "destination": "LFPG", "rfl": 45000 },
+      "expected": true
+    },
+
+    {
+      "id": "DIR_above_FL410_EVEN_FL450_fails",
+      "note": "Above RVSM_UPPER: EVEN uses ((rfl-41000)/1000)%4==2. FL450=4%4=0!=2 -> FAIL. FL450 looks 'even' as a number but is the ODD slot above FL410.",
+      "constraint": { "dir": "EVEN" },
+      "flight": { "destination": "LFPG", "rfl": 45000 },
+      "expected": false
+    },
+
+    {
+      "id": "DIR_above_FL410_EVEN_FL470_passes",
+      "note": "Confirms the above-FL410 EVEN pattern repeats. FL470=(47000-41000)/1000=6, 6%4=2 -> PASS.",
+      "constraint": { "dir": "EVEN" },
+      "flight": { "destination": "LFPG", "rfl": 47000 },
+      "expected": true
+    },
+
+    {
+      "id": "DIR_FL410_exact_boundary_ODD",
+      "note": "FL410 (rfl=41000) is NOT above RVSM_UPPER (41000 is not > 41000), so standard RVSM formula applies: (41000/1000)%2=41%2=1 -> ODD. Boundary between the two regimes.",
+      "constraint": { "dir": "ODD" },
+      "flight": { "destination": "LFPG", "rfl": 41000 },
+      "expected": true
+    },
+
+    {
+      "id": "DIR_FL410_exact_boundary_EVEN_fails",
+      "note": "FL410 uses standard RVSM: 41%2=1, which is ODD not EVEN -> FAIL. Paired with DIR_FL410_exact_boundary_ODD to confirm the boundary belongs to the RVSM regime.",
+      "constraint": { "dir": "EVEN" },
+      "flight": { "destination": "LFPG", "rfl": 41000 },
+      "expected": false
+    }
+  ]
+}

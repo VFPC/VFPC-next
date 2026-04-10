@@ -1,0 +1,15 @@
+{
+  "callsign":       "BAW123",
+  "origin":         "EGLL",
+  "destination":    "EGSS",
+  "route":          "BPK1F BPK BKY BUSTA LOREL",
+  "route_points":   ["BPK1F", "BPK", "BKY", "BUSTA", "LOREL"],
+  "sid":            "BPK1F",
+  "aircraft_type":  "B738",
+  "engine_type":    "J",
+  "rfl":            7000,
+  "is_ifr":         true,
+  "sim_day":        0,
+  "sim_hour":       12,
+  "sim_min":        0
+}
