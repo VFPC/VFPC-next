@@ -1,6 +1,6 @@
 # VFPC-next — Project Status
 
-_Last updated: 2026-04-11 (session 92 — harness hardened; --verbose flag added)_
+_Last updated: 2026-04-11 (session 93 — OutJsonSeedTests; PR #5 merged; SidApplicability cleanup)_
 
 ---
 
@@ -20,10 +20,10 @@ our verification workflow and may never merge to Peter's eventual trunk.
 
 | Branch | Purpose | Status |
 |--------|---------|--------|
-| `main` | Production baseline | Clean at `f3d2d768` |
-| `test-harness/main` | GTest harness lane | Active; rebased onto `main` |
-| `peter-clean-port-2026-04-03` | Peter's rewrite (PR #3) | Open — do not merge without Peter |
-| `ari/fix-sid-applicability` | Ari's SID applicability fix (PR #5) | Open — do not merge without Ari |
+| `main` | Production baseline | Clean at `dcaad1c2` — includes PR #5 + namespace cleanup |
+| `test-harness/main` | GTest harness lane | Active — 125/125 passing |
+| `peter-clean-port-2026-04-03` | Peter's rewrite (PR #3) | Open, unfinished — do not merge; see PR #3 note in next_session_prompt.md |
+
 | `backup/main-pre-recovery-2026-04-03` | Remote safety ref | Pending Peter confirmation to remove |
 | `backup/test-harness-pre-rebase-2026-04-03` | Remote safety ref | Pending Peter confirmation to remove |
 
@@ -31,7 +31,7 @@ our verification workflow and may never merge to Peter's eventual trunk.
 
 ## GTest Harness (`VFPC_Tests`) — current state
 
-**122/122 passing** on `test-harness/main`.
+**125/125 passing** on `test-harness/main`.
 
 Seams extracted as pure headers (no EuroScope / spdlog / curl dependency):
 - `src/FlightPlanRow.hpp` — plain flight plan data struct
@@ -126,23 +126,20 @@ python C:\Temp\vfpc_plugin_test.py --verbose
 
 | Issue | Description | Status |
 |-------|-------------|--------|
-| #1 | GTest harness — fixture-driven FlightPlanRow runner | Active / Next |
-| #2 | Draft PR for harness lane | Draft |
-| #3 | Peter's clean port (PR open) | Peter owns — do not merge |
-| #5 | Ari's SID applicability fix (PR open) | Ari owns — do not merge |
-| #6 | Remove hard-wired vcpkg.exe dependency | Parked |
-| #7 | Make RapidJSON dependency self-contained | Parked |
-| #10 | Empty-point SID bucket unreachable (plugin bug) | Open — Peter to action |
-
-**Known bug (filed as #10):** When an airport has multiple SID entries, the empty-point SID
-bucket is unreachable because "SID Required" fires for any flight without a filed SID, even
-when the empty-point entry covers routes that don't need one.
+| #1 | GTest harness - bootstrap on Peter's line | Parked / superseded |
+| #3 | Peter's clean port (PR open) | Peter owns - do not merge; needs rebase + applicability check |
+| #6 | Remove hard-wired vcpkg.exe dependency | Parked - Peter owns |
+| #4 | RST for jets on type-gated SIDs | **Closed** - fixed by PR #5 (SidApplicability) |
+| #7 | RapidJSON dependency self-contained | **Closed** - Peter fixed locally |
+| #8 | Fixture-driven FlightPlanRow runner | **Closed** - OutJsonSeedTests merged session 93 |
+| #10 | Empty-point SID bucket unreachable | **Closed** - Peter fixed locally |
 
 ---
 
 ## Next Steps
 
-1. Wait for Peter's feedback on `vfpc_check.exe` with real routes
-2. If unexpected results: investigate whether the gap is in the CLI, `ValidatorCore`, or `out.json` data
-3. Consider fixture-driven `FlightPlanRow` runner against real `out.json` (board item — Next priority)
-4. Confirm with Peter that remote backup refs can be removed
+1. **PR #3 conversation with Peter** - he needs to rebase onto main; confirm his new validation
+   logic handles the SID applicability case before merging (exact question in `next_session_prompt.md`)
+2. Peter's fixes for #10 and #7 are local - let him push when ready
+3. Confirm with Peter that remote backup refs can be removed
+4. Refresh seeds for AIRAC 2604 when new `out.json` is produced

@@ -2,6 +2,44 @@
 
 ---
 
+### Session 2026-04-11 (session 93): OutJsonSeedTests; PR #5 merged; SidApplicability cleanup
+
+**Scope:** VFPC-next `main` + `test-harness/main`
+
+**OutJsonSeedTests (issue #8 — closed):**
+- New `VFPC_Tests/OutJsonSeedTests.cpp`: loads `fixtures/out_json_seeds.json` + live `out.json`,
+  drives each seed through `ValidatorCore::validateFlightPlan()`, asserts `overall_pass == true`
+- Fixture loader enforces all replay-contract fields (`first_waypoint`, `sid_suffix`, `is_ifr`,
+  `rfl`, `route_points`, etc.) — missing or wrongly-typed fields fail fast in `SeedsFileLoads`
+- `rowFromSeed()` unconditional reads; no synthetic fallbacks
+- Python harness updated: `first_waypoint`/`sid_suffix` now stored using same derivation as plugin
+- User guide at `Documentation/out-json-seed-tests.md`
+
+**PR #5 merged (issue #4 — closed):**
+- `SidApplicability.hpp` — `ShouldEvaluateConstraints()` fixes RST-for-jets on type-gated SIDs
+- One-line change in `analyzeFP.cpp` at line 1862; rebased cleanly onto `main`
+- Follow-up: removed `using namespace rapidjson` from header; all types now explicitly qualified
+
+**Issues #7, #10:** Closed — Peter fixed both locally (described in issue comments); not yet pushed.
+
+**PR #3 decision:** Leave open as Peter's working branch. Do not merge until Peter says it's ready
+AND confirms his new validation logic handles the SID applicability case (or incorporates
+`SidApplicability::ShouldEvaluateConstraints`). Rebase conflict in `analyzeFP.cpp` is expected.
+
+**Validation:** 125/125 GTest tests passing on `test-harness/main`.
+
+**Commits on `main`:**
+- `0e78ddc6` — fix: allow constraint evaluation when no SID restriction applies (PR #5)
+- `dcaad1c2` — fix(SidApplicability): remove using namespace rapidjson from header
+
+**Commits on `test-harness/main`:**
+- `e4eb5126` — test(harness): add fixture-driven OutJsonSeedTests GTest suite
+- `e74edd94` — fix(harness): store and replay exact first_waypoint/sid_suffix
+- `afc62acf` — fix(harness): enforce replay-contract fields in fixture loader
+- `aee1a01b` — docs: add OutJsonSeedTests user guide
+
+---
+
 ### Session 2026-04-11 (session 92): plugin test harness hardened; --verbose flag added
 
 **Scope:** VFPC-next (Python test harness — `C:\Temp\vfpc_plugin_test.py`)
