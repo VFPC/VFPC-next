@@ -1,39 +1,61 @@
-# VFPC-next Session Status Summary
-
-_Most recent session first._
+# VFPC-next — Session Status Summary
 
 ---
 
-### Session 2026-04-10: vfpc_check offline route validation CLI
+### Session 2026-04-11 (session 92): plugin test harness hardened; --verbose flag added
+
+**Scope:** VFPC-next (Python test harness — `C:\Temp\vfpc_plugin_test.py`)
+
+**vfpc_plugin_test.py — harness hardening:**
+- Fixed `TYPE_VIOLATION` guard: changed from `baseline_eng != "J"` to checking whether `"J"` is
+  explicitly present in any restriction's `types` list. LISTO's restriction is an allowlist-redirect
+  for props; jets are simply unmentioned and therefore unrestricted — the old guard suppressed the
+  right cases for the wrong reason.
+- Fixed `MISSING_POINT` guard: only emit when every sibling constraint in the SID entry also has a
+  `points` field. Siblings without `points` survive the mutation and produce PASS_WARN (EGAA oceanic).
+- Fixed `DIRECTION_FLIP` guard: same `all_siblings_have_points` rule applied. EGAA oceanic siblings
+  without `points` survive the direction-flipped route, producing PASS_WARN via a BanAlert.
+- Fixed `RFL_ABOVE_MAX` guard: skip when any sibling has no `max` field. LUVUM has an unbounded
+  sibling that accepts any RFL, causing the above-max mutation to pass.
+- Fixed `ROUTE_MISMATCH` guard: tightened `MAX_SIBLINGS` from 30 → 20; changed sibling filter
+  from "empty route only" to "empty route AND no points" — a constraint needs both absent to survive
+  a junk route. EGBB BRUMI (exactly 30 siblings) now correctly falls outside the cap.
+- Added `--verbose` / `-v` flag: prints every baseline flight plan (one-line summary + reproducible
+  JSON) and every mutation input under each result. Normal run stays terse.
+
+**Final run result:** 53 seeds, 121 mutations, **0 wrong outcomes**. Runtime ~23 s.
+
+**Artifacts written:** `C:\Temp\vfpc_seeds.json`, `C:\Temp\vfpc_discarded.json`,
+`C:\Temp\vfpc_mutations.json`
+
+**No VFPC-next C++/GTest changes this session.**
+
+---
+
+### Session 2026-04-10 (session 91): vfpc_check offline CLI merged (PR #9)
 
 **Scope:** VFPC-next
 
-**vfpc_check CLI — PR #9 merged to main (`040151bd`):**
+**VFPC-next — vfpc_check CLI (PR #9 merged → `040151bd`):**
 - Built `VFPC_Check/main.cpp` — standalone Windows console tool that runs the full
-  `ValidatorCore` constraint-evaluation path against a real `out.json` with no
-  EuroScope or Sweatbox dependency
-- Added `VFPC_Check/VFPC_Check.vcxproj` (Console Application, reuses rapidjson from
-  `VFPC_Tests/third_party`; outputs `vfpc_check.exe`)
-- Wired into `VFPC.sln`; `.gitignore` exception added for `VFPC_Check/`
-- Five rounds of Ari patch review; each finding addressed before merge:
-  - Round 1: SYN advisory vs hard ERR distinction; input normalisation (uppercase,
-    `#` strip, `first_waypoint`/`sid_suffix` derivation from SID)
-  - Round 2: VFR plans now exit 0 with NOT CHECKED; missing route text now ERR exit 1
-    (not SYN advisory — `VF_SYNTAX="ERR"` vs `"Invalid Syntax"` is the key distinction)
-  - Round 3: missing destination now ERR exit 1; `route_points`-only input rejected
-    (plugin always has raw route string alongside waypoints)
-  - Round 4: missing origin now ERR exit 1 (was exit 2); `first_waypoint`/`sid_suffix`
-    JSON overrides removed — always derived from SID, no caller override permitted
-
-**Key design decisions:**
-- Plugin-equivalence is the hard contract: every ERR gate, VFR short-circuit, and
-  normalisation step mirrors the exact code path in `analyzeFP.cpp`
-- `FinalizeValidationResult_` / `FieldIndicatesFailure_` is the final arbiter:
-  `"ERR"` → hard failure; `"Invalid Syntax"` → advisory; `"Not Checked"` → not a failure
-- `first_waypoint` and `sid_suffix` are always derived — no JSON override path, matching
-  `ParseFlightPlanRow_` in `analyzeFP.cpp` which never allows external override
+  `ValidatorCore` 7-round constraint evaluation against a real `out.json` with no
+  EuroScope or Sweatbox dependency; for Peter to test routes without the live plugin
+- Added `VFPC_Check/VFPC_Check.vcxproj` (Console Application; outputs `vfpc_check.exe`,
+  ~433 KB Release x64, no DLLs; reuses rapidjson from `VFPC_Tests/third_party`)
+- Five rounds of Ari patch review; all findings addressed before merge:
+  - Round 1: SYN advisory vs hard ERR; input normalisation (uppercase, `#` strip,
+    `first_waypoint`/`sid_suffix` derived from SID, not from JSON overrides)
+  - Round 2: VFR plans exit 0 NOT CHECKED; missing route text → ERR exit 1 (not SYN)
+  - Round 3: missing destination → ERR exit 1; `route_points`-only input rejected
+  - Round 4: missing origin → ERR exit 1 (was exit 2); `first_waypoint`/`sid_suffix`
+    JSON overrides removed — always derived from SID
+- Key design principle: `FinalizeValidationResult_` / `FieldIndicatesFailure_` is the
+  arbiter — `"ERR"` is hard failure, `"Invalid Syntax"` is advisory, `"Not Checked"` is not a failure
+- VFPC-next butler docs created (this is the first session for this repo's butler)
 
 **Validation:** Release x64 builds clean; smoke-tested against 2603 out.json
+(PASS, FAIL, SYN, VFR, ERR cases all verified)
 
-**Commits on feat/vfpc-check-cli (squashed into main):**
+**Commits pushed to VFPC-next:**
 - `040151bd` — feat(check): add vfpc_check offline route validation CLI (#9)
+- `f3d2d768` — docs: create butler docs — session 2026-04-10 vfpc_check CLI
