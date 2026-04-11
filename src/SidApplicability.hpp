@@ -25,11 +25,9 @@
 
 namespace SidApplicability {
 
-using namespace rapidjson;
-
-inline bool ArrayContainsString(const Value& arr, const std::string& needle)
+inline bool ArrayContainsString(const rapidjson::Value& arr, const std::string& needle)
 {
-    for (SizeType i = 0; i < arr.Size(); ++i) {
+    for (rapidjson::SizeType i = 0; i < arr.Size(); ++i) {
         if (arr[i].IsString() && needle == arr[i].GetString()) {
             return true;
         }
@@ -37,9 +35,9 @@ inline bool ArrayContainsString(const Value& arr, const std::string& needle)
     return false;
 }
 
-inline bool ArrayContainsEnding(const Value& arr, const std::string& suffix)
+inline bool ArrayContainsEnding(const rapidjson::Value& arr, const std::string& suffix)
 {
-    for (SizeType i = 0; i < arr.Size(); ++i) {
+    for (rapidjson::SizeType i = 0; i < arr.Size(); ++i) {
         if (!arr[i].IsString()) {
             continue;
         }
@@ -57,7 +55,7 @@ inline bool ArrayContainsEnding(const Value& arr, const std::string& suffix)
 }
 
 inline bool RestrictionSelectorsMatch(
-    const Value& restriction,
+    const rapidjson::Value& restriction,
     const std::string& engine_type,
     const std::string& aircraft_type,
     const std::string& sid_suffix,
@@ -99,7 +97,7 @@ inline bool RestrictionSelectorsMatch(
 }
 
 inline bool AnySidRestrictionApplicable(
-    const Value& restrictions,
+    const rapidjson::Value& restrictions,
     const std::string& engine_type,
     const std::string& aircraft_type,
     const std::string& sid_suffix,
@@ -111,7 +109,7 @@ inline bool AnySidRestrictionApplicable(
         return false;
     }
 
-    for (SizeType i = 0; i < restrictions.Size(); ++i) {
+    for (rapidjson::SizeType i = 0; i < restrictions.Size(); ++i) {
         if (RestrictionSelectorsMatch(
                 restrictions[i],
                 engine_type,
@@ -129,7 +127,7 @@ inline bool AnySidRestrictionApplicable(
 
 inline bool ShouldEvaluateConstraints(
     bool sid_restrictions_passed,
-    const Value& restrictions,
+    const rapidjson::Value& restrictions,
     const std::string& engine_type,
     const std::string& aircraft_type,
     const std::string& sid_suffix,
