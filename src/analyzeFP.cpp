@@ -10,6 +10,7 @@
 #include "UrlData.h"
 #include "VersionInfo.h"
 #include "ConstraintChecks.hpp"
+#include "SidApplicability.hpp"
 #include "TimeWindow.h"
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
@@ -1761,7 +1762,21 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 		const auto* sidLvlRestrictions = FindArrayMember(*matched_sid, "restrictions");
 		if (sidLvlRestrictions) {
 			sid_restriction_result = EvaluateSidRestrictions_(row, *sidLvlRestrictions);
-			sid_level_pass = sid_restriction_result.passed;
+			// A failed SID-level evaluation should only suppress the constraint
+			// loop when at least one SID-level restriction is actually in scope
+			// for this flight. If all SID-level restrictions are out of scope
+			// (for example, type-mismatched or time-inactive), we still need the
+			// downstream destination / route / level checks to run so the plugin
+			// can produce the correct non-RST outcome.
+			sid_level_pass = SidApplicability::ShouldEvaluateConstraints(
+				sid_restriction_result.passed,
+				*sidLvlRestrictions,
+				row.engine_type,
+				row.aircraft_type,
+				row.sid_suffix,
+				timedata[5],
+				timedata[3],
+				timedata[4]);
 		}
 		else {
 			sid_restriction_result.has_restrictions = false;
