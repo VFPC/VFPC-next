@@ -12,6 +12,8 @@
 #include "Constant.hpp"
 #include "Utils.h"
 #include "PluginConfig.h"
+#include "Log.h"
+
 using namespace std;
 using namespace rapidjson;
 using namespace EuroScopePlugIn;
@@ -99,6 +101,12 @@ public:
 		VF_FIELD_COUNT = 14
 	};
 
+	enum class ResultsView
+	{
+		Full,
+		Summary
+	};
+
 	enum class ValidationStatus
 	{
 		Pending,
@@ -111,11 +119,13 @@ public:
 		bool ready = false;
 		bool passed = false;
 		std::string itemString;
+
 		struct Field
 		{
-			std::string normal = "-";
-			std::string debug = "-";
+			std::string full = "-";
+			std::string summary = "-";
 		};
+
 		std::array<Field, VF_FIELD_COUNT> fields;
 		ValidationStatus status = ValidationStatus::Pending;
 	};
@@ -164,7 +174,7 @@ public:
 	//==============================================================
 	// 9. UI / console helpers
 	//==============================================================
-	virtual bool Enabled(CFlightPlan flightPlan);
+	virtual bool ChecksEnabledForFlightPlan(CFlightPlan flightPlan);
 	void SendToConsole(const char* msg, bool urgent = false);
 
 	template <typename... Args>
@@ -183,7 +193,7 @@ public:
 	}
 
 	void ApplyTagDisplayFromResult_(const ValidationResult& result, char sItemString[16], int* pColorCode, COLORREF* pRGB) const;
-	void OutputValidationResultToConsole_(const ValidationResult& result, bool debug_view = false);
+	void OutputValidationResultToConsole_(const ValidationResult& result, ResultsView view);
 	std::string CompactFieldName_(ValidationField field) const;
 	bool FieldNeedsAttention_(const ValidationResult& result, ValidationField field) const;
 	std::string TagMnemonicFromResult_(const ValidationResult& result) const;
@@ -256,23 +266,24 @@ public:
 		return s;
 	}
 
-	bool routeContains(vector<string> rte, const Value& valid)const {
-		for (SizeType i = 0; i < valid.Size(); i++) {
-			string r = valid[i].GetString();
-			if (!strcmp(r.c_str(), WILDCARD.c_str())) {
+	bool routeContains(vector<string> filed_route, const Value& constraint_route_array)const {
+		for (SizeType i = 0; i < constraint_route_array.Size(); i++) {
+			string route = constraint_route_array[i].GetString();
+			LOG_TRACE("Checking route constraint index [{}] {} against filed route {}", i, route, vectorToString(filed_route));
+			if (!strcmp(route.c_str(), WILDCARD.c_str())) {
 				return true;
 			}
-			vector<string> current = split(r, ' ');
-			for (std::size_t j = 0; j < current.size(); j++) {
-				to_upper(current[j]);
+			vector<string> waypoints = split(route, ' ');
+			for (std::size_t j = 0; j < waypoints.size(); j++) {
+				to_upper(waypoints[j]);
 			}
 			bool admissible = true;
-			if (current.size() > rte.size()) {
+			if (waypoints.size() > filed_route.size()) {
 				admissible = false;
 			}
 			else {
-				for (SizeType j = 0; j < current.size(); j++) {
-					if (current[j] != rte[j] && strcmp(current[j].c_str
+				for (SizeType j = 0; j < waypoints.size(); j++) {
+					if (waypoints[j] != filed_route[j] && strcmp(waypoints[j].c_str
 					(), WILDCARD.c_str())) {
 						admissible = false;
 					}
@@ -310,13 +321,13 @@ public:
 		ValidationResult result;
 		for (auto& f : result.fields)
 		{
-			f.normal = "-";
-			f.debug = "-";
+			f.full = "-";
+			f.summary = "-";
 		}
-		result.fields[VF_CALLSIGN].normal = cs;
-		result.fields[VF_CALLSIGN].debug = cs;
-		result.fields[VF_STATUS].normal = "Failed";
-		result.fields[VF_STATUS].debug = "Failed";
+		result.fields[VF_CALLSIGN].full = cs;
+		result.fields[VF_CALLSIGN].summary = cs;
+		result.fields[VF_STATUS].full = "Failed";
+		result.fields[VF_STATUS].summary = "Failed";
 		return result;
 	}
 
@@ -387,18 +398,23 @@ private:
 		bool time = false;
 		bool banned = false;
 	};
+
 	struct SidRestrictionResult
 	{
 		bool has_restrictions = false;
-		bool passed = true; // default pass if no SID-level restrictions exist
+		bool any_applicable = false; // true if at least one SID-level restriction is in scope for this flight
+		bool passed = true;          // true if at least one applicable SID-level restriction passes,
+									 // or if no SID-level restrictions exist
 		RestrictionFailureFlags fails;
 	};
+
 	struct ConstraintRestrictionResult
 	{
 		bool has_restrictions = false;
 		bool passed = true; // default pass if no constraint-level restrictions exist 
 		RestrictionFailureFlags fails;
 	};
+
 	//==========================================================
 	// 14. Version / worker thread helpers
 	//==========================================================
@@ -450,6 +466,10 @@ private:
 
 	bool RouteContainsAnyPoint_(const Value& arr,
 		const vector<string>& route) const;
+
+	bool RestrictionSelectorsMatch_(
+		const FlightPlanRow& row,
+		const rapidjson::Value& restriction) const;
 
 	bool RestrictionObjectMatches_(
 		const FlightPlanRow& row,
@@ -581,6 +601,8 @@ private:
 	std::mutex tracked_flightplans_mtx_;
 	std::unordered_map<std::string, TrackedFlightPlan>
 		tracked_flightplans_;
+
+	ResultsView console_results_view_ = ResultsView::Summary;
 
 	// other existing state
 	int last_update = -1;

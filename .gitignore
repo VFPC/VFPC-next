@@ -45,6 +45,7 @@ log/
 # Visual Studio
 .vs/
 .vscode/
+CppProperties.json
 *.user
 *.suo
 *.db
@@ -151,3 +152,4 @@ lib/include/
 !*.vcxproj.filters
 !*.rc
 !resource.h
+!vcpkg.json

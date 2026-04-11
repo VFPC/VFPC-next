@@ -22,7 +22,7 @@ using namespace std::chrono_literals; // Add this line to enable chrono literals
 //==============================================================
 namespace
 {
-	bool debugMode = true;
+	//bool debugMode = true;
 	bool autoLoad = false;
 	bool fileLoad = false;
 	bool apiUpdated = false;
@@ -39,7 +39,6 @@ namespace
 	vector<int> timedata;
 	vector<int> lastupdate;
 	vector<string> logBuffer{};
-
 
 	/***********************************************************
 	* The following are used with the state machine to track the
@@ -173,6 +172,7 @@ namespace
 		}
 		return false;
 	}
+
 } // end namespace
 
 //==============================================================
@@ -292,14 +292,15 @@ void CVFPCPlugin::ApplyTagDisplayFromResult_(const ValidationResult& result,
 	}
 }
 
-void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& result, bool debug_view)
+void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& result, ResultsView view)
 {
-	if (debug_view) {
-		// keep your full verbose output here
-		const auto& f = result.fields;
-		auto text = [&](ValidationField field) -> const std::string& {
-			return debug_view ? f[field].debug : f[field].normal;
-			};
+	auto text = [&](ValidationField field) -> const std::string& {
+		return (view == ResultsView::Full)
+			? result.fields[field].full
+			: result.fields[field].summary;
+		};
+
+	if (view == ResultsView::Full) {
 		SendToConsole(vfpc::urgent, "VFPC {} {}", text(VF_CALLSIGN), result.itemString);
 		SendToConsole("SID: {}", text(VF_SID));
 		SendToConsole("Destination: {}", text(VF_DESTINATION));
@@ -319,11 +320,11 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 	std::vector<std::string> core_fail;
 	std::vector<std::string> rule_fail;
 	std::vector<std::string> advisory;
-	auto add_if_needed = [&](ValidationField field,
-		std::vector<std::string>& bucket) {
-			if (FieldNeedsAttention_(result, field)) {
-				bucket.push_back(CompactFieldName_(field));
-			}
+
+	auto add_if_needed = [&](ValidationField field, std::vector<std::string>& bucket) {
+		if (FieldNeedsAttention_(result, field)) {
+			bucket.push_back(CompactFieldName_(field));
+		}
 		};
 
 	add_if_needed(VF_SID, core_fail);
@@ -339,12 +340,11 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 	add_if_needed(VF_SYNTAX, advisory);
 
 	const std::string callsign =
-		!result.fields[VF_CALLSIGN].normal.empty() ? result.fields[VF_CALLSIGN].normal : "UNKNOWN";
+		!result.fields[VF_CALLSIGN].summary.empty() ? result.fields[VF_CALLSIGN].summary : "UNKNOWN";
 
 	SendToConsole(vfpc::urgent, "VFPC {} {}", callsign, result.itemString);
 
 	switch (result.status) {
-
 	case ValidationStatus::Passed:
 		if (advisory.empty()) {
 			SendToConsole("All checks passed");
@@ -363,12 +363,14 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 		else {
 			SendToConsole("FAIL: Validation error");
 		}
+
 		if (!rule_fail.empty()) {
 			SendToConsole("RULES: {}", fmt::join(rule_fail, " "));
 		}
 		else if (!advisory.empty()) {
 			SendToConsole("NOTE: {}", fmt::join(advisory, " "));
 		}
+
 		SendToConsole("Use .vfpc check");
 		break;
 
@@ -409,7 +411,7 @@ std::string CVFPCPlugin::CompactFieldName_(ValidationField field) const
 
 bool CVFPCPlugin::FieldNeedsAttention_(const ValidationResult& result, ValidationField field) const
 {
-	const std::string& s = result.fields[field].normal;
+	const std::string& s = result.fields[field].summary;
 	return !s.empty() &&
 		s != "-" &&
 		s != "OK" &&
@@ -417,7 +419,6 @@ bool CVFPCPlugin::FieldNeedsAttention_(const ValidationResult& result, Validatio
 		s != "No Warnings." &&
 		s != "No Route Ban." &&
 		s != "Not Checked";
-
 }
 
 std::string CVFPCPlugin::TagMnemonicFromResult_(const ValidationResult& result) const
@@ -1113,43 +1114,43 @@ vector<bool> CVFPCPlugin::checkExitPoint(const Value& conditions,
 	return out;
 }
 
-vector<bool> CVFPCPlugin::checkRoute(const Value& conditions,
-	const vector<string>& route,
+vector<bool> CVFPCPlugin::checkRoute(const Value& sid_constraints,
+	const vector<string>& filed_route,
 	vector<bool>& in) const
 {
 	vector<bool> out{};
-	out.reserve(conditions.Size());
+	out.reserve(sid_constraints.Size());
 
-	for (size_t i = 0; i < conditions.Size(); i++) {
+	for (size_t i = 0; i < sid_constraints.Size(); i++) {
 		if (!in[i]) {
 			out.push_back(false);
 			continue;
 		}
 
-		bool res = true;
+		bool result = true;
 
-		const auto& cond = conditions[i];
-		if (!cond.IsObject()) {
+		const auto& constraint = sid_constraints[i];
+		if (!constraint.IsObject()) {
 			out.push_back(false);
 			continue;
 		}
 
-		const auto* routeArr = FindArrayMember(cond, "route");
-		if (routeArr && !routeArr->Empty()) {
-			if (!routeContains(route, *routeArr)) { // route from FP, routeArr from condition.
-				res = false;
+		const auto* route_array = FindArrayMember(constraint, "route");
+		if (route_array && !route_array->Empty()) {
+			if (!routeContains(filed_route, *route_array)) { // route from FP, routeArr from condition.
+				result = false;
 			}
 		}
 
-		const auto* norouteArr = FindArrayMember(cond, "noroute");
-		if (norouteArr && !norouteArr->Empty()) {
-			if (routeContains(route, *norouteArr)) {
-				res = false;
+		const auto* noroute_array = FindArrayMember(constraint, "noroute");
+		if (noroute_array && !noroute_array->Empty()) {
+			if (routeContains(filed_route, *noroute_array)) {
+				result = false;
 			}
 		}
 
-		out.push_back(res);
-		LOG_TRACE("Route Check: Completed with {} result", BoolToString(res));
+		out.push_back(result);
+		LOG_TRACE("Route Check: Completed with {} result", BoolToString(result));
 	}
 	return out;
 }
@@ -1309,39 +1310,32 @@ vector<bool> CVFPCPlugin::checkAlerts(const Value& constraint,
 	return out;
 }
 
-bool CVFPCPlugin::RestrictionObjectMatches_(const FlightPlanRow& row,
-	const rapidjson::Value& restriction,
-	RestrictionFailureFlags& fails) const
+bool CVFPCPlugin::RestrictionSelectorsMatch_(const FlightPlanRow& row,
+	const rapidjson::Value& restriction) const
 {
 	if (!restriction.IsObject()) {
 		return false;
 	}
 
-	RestrictionFailureFlags local{};
-	bool matches = true;
 	// ----------------------------------------------------------
 	// suffix
 	// ----------------------------------------------------------
 	if (const auto* suffixArr = FindArrayMember(restriction, "suffix")) {
 		if (!suffixArr->Empty()) {
 			if (!arrayContainsEnding(*suffixArr, row.sid_suffix)) {
-				local.suffix = true;
-				matches = false;
+				return false;
 			}
-
 		}
 	}
 
 	// ----------------------------------------------------------
 	// aircraft / engine types
 	// ----------------------------------------------------------
-	if (const auto* typesArr = FindArrayMember(restriction, "types"))
-	{
+	if (const auto* typesArr = FindArrayMember(restriction, "types")) {
 		if (!typesArr->Empty()) {
 			if (!arrayContainsString(*typesArr, row.engine_type) &&
 				!arrayContainsString(*typesArr, row.aircraft_type)) {
-				local.type = true;
-				matches = false;
+				return false;
 			}
 		}
 	}
@@ -1351,34 +1345,80 @@ bool CVFPCPlugin::RestrictionObjectMatches_(const FlightPlanRow& row,
 	// ----------------------------------------------------------
 	const auto* startObj = FindMemberValue(restriction, "start");
 	const auto* endObj = FindMemberValue(restriction, "end");
-	if (startObj && endObj && startObj->IsObject() && endObj->IsObject
-	()) {
-		if (!checkTimeWindow(timedata[5], timedata[3], timedata[4],
-			restriction)) {
-			local.time = true;
-			matches = false;
+	if (startObj && endObj && startObj->IsObject() && endObj->IsObject()) {
+		if (!checkTimeWindow(timedata[5], timedata[3], timedata[4], restriction)) {
+			return false;
 		}
+	}
+
+	return true;
+}
+
+bool CVFPCPlugin::RestrictionObjectMatches_(const FlightPlanRow& row,
+	const rapidjson::Value& restriction,
+	RestrictionFailureFlags& fails) const
+{
+	if (!restriction.IsObject()) {
+		return false;
+	}
+
+	RestrictionFailureFlags local{};
+
+	// ----------------------------------------------------------
+	// suffix / type / time applicability
+	// ----------------------------------------------------------
+	const bool selectors_match = RestrictionSelectorsMatch_(row, restriction);
+
+	if (!selectors_match) {
+		if (const auto* suffixArr = FindArrayMember(restriction, "suffix")) {
+			if (!suffixArr->Empty()) {
+				if (!arrayContainsEnding(*suffixArr, row.sid_suffix)) {
+					local.suffix = true;
+				}
+			}
+		}
+
+		if (const auto* typesArr = FindArrayMember(restriction, "types")) {
+			if (!typesArr->Empty()) {
+				if (!arrayContainsString(*typesArr, row.engine_type) &&
+					!arrayContainsString(*typesArr, row.aircraft_type)) {
+					local.type = true;
+				}
+			}
+		}
+
+		const auto* startObj = FindMemberValue(restriction, "start");
+		const auto* endObj = FindMemberValue(restriction, "end");
+		if (startObj && endObj && startObj->IsObject() && endObj->IsObject()) {
+			if (!checkTimeWindow(timedata[5], timedata[3], timedata[4], restriction)) {
+				local.time = true;
+			}
+		}
+
+		fails.suffix = fails.suffix || local.suffix;
+		fails.type = fails.type || local.type;
+		fails.time = fails.time || local.time;
+		fails.banned = fails.banned || local.banned;
+
+		return false;
 	}
 
 	// ----------------------------------------------------------
 	// banned
 	// ----------------------------------------------------------
-	if (const auto* bannedValue = FindMemberValue(restriction,
-		"banned");
-		bannedValue && bannedValue->IsBool() && bannedValue->GetBool
-		()) {
+	if (const auto* bannedValue = FindMemberValue(restriction, "banned");
+		bannedValue && bannedValue->IsBool() && bannedValue->GetBool()) {
 		local.banned = true;
-		matches = false;
-	}
 
-	if (!matches) {
 		fails.suffix = fails.suffix || local.suffix;
 		fails.type = fails.type || local.type;
 		fails.time = fails.time || local.time;
 		fails.banned = fails.banned || local.banned;
+
+		return false;
 	}
 
-	return matches;
+	return true;
 }
 
 CVFPCPlugin::SidRestrictionResult
@@ -1389,27 +1429,40 @@ CVFPCPlugin::EvaluateSidRestrictions_(const FlightPlanRow& row,
 
 	if (!sid_restrictions.IsArray() || sid_restrictions.Empty()) {
 		result.has_restrictions = false;
+		result.any_applicable = false;
 		result.passed = true;
 		return result;
 	}
 
 	result.has_restrictions = true;
+	result.any_applicable = false;
 	result.passed = false;
-	for (rapidjson::SizeType i = 0; i < sid_restrictions.Size(); ++i)
-	{
+
+	for (rapidjson::SizeType i = 0; i < sid_restrictions.Size(); ++i) {
 		const auto& restriction = sid_restrictions[i];
+		if (!restriction.IsObject()) {
+			continue;
+		}
+
+		const bool selectors_match = RestrictionSelectorsMatch_(row, restriction);
+		if (selectors_match) {
+			result.any_applicable = true;
+		}
+
 		RestrictionFailureFlags local_fails{};
-		if (RestrictionObjectMatches_(row, restriction, local_fails))
-		{
+		if (RestrictionObjectMatches_(row, restriction, local_fails)) {
 			result.passed = true;
 			return result;
 		}
 
-		result.fails.suffix = result.fails.suffix || local_fails.suffix;
-		result.fails.type = result.fails.type || local_fails.type;
-		result.fails.time = result.fails.time || local_fails.time;
-		result.fails.banned = result.fails.banned || local_fails.banned;
+		if (selectors_match) {
+			result.fails.suffix = result.fails.suffix || local_fails.suffix;
+			result.fails.type = result.fails.type || local_fails.type;
+			result.fails.time = result.fails.time || local_fails.time;
+			result.fails.banned = result.fails.banned || local_fails.banned;
+		}
 	}
+
 	return result;
 }
 
@@ -1738,39 +1791,55 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	// ----------------------------------------------------------
 	// 8. Find matching SID / non-SID route
 	// ----------------------------------------------------------
+	/********************************************************************************
+	* This section attempts to find a matching SID or non-SID departure 
+	* route in the loaded airport data, if available.
+	* 
+	* The logic is as follows:
+	*  1. Decide whether this is a SID or non-SID departure.
+	*  2. If it is a SID departure, try to match by SID/first waypoint.
+	*  3. If it is non-SID, look for entry "point": "".
+	*  4. Do not use row.first_waypoint.empty() alone as evidence that a SID exists.
+	*********************************************************************************/
 	size_t matched_sid_pos = std::string::npos;
 	const rapidjson::Value* matched_sid = nullptr;
 	const rapidjson::Value* constraints = nullptr;
 	bool usable_sid_found = false;
 
 	if (have_sids) {
-		// If there is only one SID defined for the airport, and it has an
-		// empty "point" field, treat it as a non-SID departure route 
-		// and match it automatically.
-		if (airportSids->Size() == 1) {
-			const auto& only_sid = (*airportSids)[0];
-			const auto* pointVal = FindMemberValue(only_sid, "point");
-			if (pointVal && pointVal->IsString() &&
+		const bool is_non_sid_departure = row.sid.empty();
 
-				std::string(pointVal->GetString()).empty()) {
-				matched_sid_pos = 0;
+		if (is_non_sid_departure) {
+			// Look for an explicit non-SID entry: { "point": "" }
+			for (rapidjson::SizeType i = 0; i < airportSids->Size(); ++i) {
+				const auto& sid_entry = (*airportSids)[i];
+				if (!sid_entry.IsObject()) {
+					continue;
+				}
+
+				const auto* pointVal = FindMemberValue(sid_entry, "point");
+				if (pointVal && pointVal->IsString() &&
+					std::string(pointVal->GetString()).empty()) {
+					matched_sid_pos = static_cast<size_t>(i);
+					break;
+				}
 			}
 		}
-		else if (!row.first_waypoint.empty()) {
-			// Looking for a SID with a "point" field matching the first waypoint 
-			// in the route.  If found, this is the SID we will validate against.
-			TryFindSidIndex_(*airportSids, row.first_waypoint, matched_sid_pos);
+		else {
+			// SID departure: try to match by first waypoint / SID point.
+			if (!row.first_waypoint.empty()) {
+				TryFindSidIndex_(*airportSids, row.first_waypoint, matched_sid_pos);
+			}
 		}
 
-		// If no match found, and the flight plan has no route points
-		// (and thus no first waypoint), look for a SID with an
-		// empty "point" field to match as a non - SID departure route.
 		if (matched_sid_pos == std::string::npos) {
-			if (row.first_waypoint.empty()) {
-				SetField_(validationResult, VF_SID, "SID Required", "Non-SID departure routes not in database.");
+			if (is_non_sid_departure) {
+				SetField_(validationResult, VF_SID, "SID Required",
+					"Non-SID departure route not in database.");
 			}
 			else {
-				SetField_(validationResult, VF_SID, "SID Not Found", row.sid + " departure not in database.");
+				SetField_(validationResult, VF_SID, "SID Not Found",
+					row.sid + " departure not in database.");
 			}
 
 			SetBlockedFields_(validationResult,
@@ -1785,13 +1854,15 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 					VF_WARNINGS,
 					VF_BANS
 				},
-				"Blocked because no matching SID was found.");
+				"Blocked because no matching SID or non-SID route was found.");
 		}
 		else {
 			const auto sid_index = static_cast<rapidjson::SizeType>(matched_sid_pos);
 			matched_sid = &(*airportSids)[sid_index];
+
 			if (!matched_sid->IsObject()) {
-				SetField_(validationResult, VF_SID, "SID Data Invalid", "SID data entry is not an object.");
+				SetField_(validationResult, VF_SID, "SID Data Invalid",
+					"SID data entry is not an object.");
 
 				SetBlockedFields_(validationResult,
 					{
@@ -1808,12 +1879,11 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 					"Blocked because SID data entry is invalid.");
 			}
 			else {
-				// If we found a matching SID/non-SID route, check it has constraints 
-				// we can validate against.  If not, block with an error.
 				constraints = FindArrayMember(*matched_sid, "constraints");
 				if (!constraints || constraints->Empty()) {
 					SetField_(validationResult, VF_SID, "SID Data Invalid",
 						"SID data entry has no valid constraints array.");
+
 					SetBlockedFields_(validationResult,
 						{
 							VF_DESTINATION,
@@ -1829,20 +1899,19 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 						"Blocked because SID constraints are invalid.");
 				}
 				else {
-					// We have a matching SID/non-SID route with constraints,
-					// so we can attempt validation against it.
 					usable_sid_found = true;
-					if (!row.sid.empty()) {
-						SetField_(validationResult, VF_SID, "Passed", "SID - " + row.sid + ".");
+
+					if (is_non_sid_departure) {
+						SetField_(validationResult, VF_SID, "Passed", "Non-SID Route.");
 					}
 					else {
-						SetField_(validationResult, VF_SID, "Passed", "Non-SID Route.");
+						SetField_(validationResult, VF_SID, "Passed", "SID - " + row.sid + ".");
 					}
 				}
 			}
 		}
 	}
-
+	
 	// ----------------------------------------------------------
 	// 9. Constraint / restriction processing
 	// ----------------------------------------------------------
@@ -1861,10 +1930,25 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 		const auto* sidLvlRestrictions = FindArrayMember(*matched_sid, "restrictions");
 		if (sidLvlRestrictions) {
 			sid_restriction_result = EvaluateSidRestrictions_(row, *sidLvlRestrictions);
-			sid_level_pass = sid_restriction_result.passed;
+
+			LOG_TRACE("SID-Level Restrictions: has_restrictions={} any_applicable={} passed={} fails: suffix={} type={} time={} banned={}",
+				sid_restriction_result.has_restrictions,
+				sid_restriction_result.any_applicable,
+				sid_restriction_result.passed,
+				sid_restriction_result.fails.suffix,
+				sid_restriction_result.fails.type,
+				sid_restriction_result.fails.time,
+				sid_restriction_result.fails.banned);
+
+			// Continue into normal constraint evaluation if:
+			// 1) a SID-level restriction passed, or
+			// 2) SID-level restrictions exist, but none are applicable to this flight.
+			sid_level_pass = sid_restriction_result.passed ||
+				!sid_restriction_result.any_applicable;
 		}
 		else {
 			sid_restriction_result.has_restrictions = false;
+			sid_restriction_result.any_applicable = false;
 			sid_restriction_result.passed = true;
 			sid_level_pass = true;
 		}
@@ -2318,8 +2402,8 @@ CVFPCPlugin::MakePendingResult_(const std::string& callsign,
 	ValidationResult result = initialiseResults(callsign);
 
 	SetPending_(result, "PDG");
-	result.fields[VF_SID].normal = normal;
-	result.fields[VF_SID].debug = debug;
+	result.fields[VF_SID].summary = normal;
+	result.fields[VF_SID].full = debug;
 	return result;
 }
 
@@ -2724,10 +2808,10 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 	}
 	if (should_store_pending) {
 		ValidationResult pending = initialiseResults(row.callsign);
-		pending.fields[VF_SID].normal = "Loading";
-		pending.fields[VF_SID].debug = "Airport data not loaded yet.";
-		pending.fields[VF_STATUS].normal = "Pending";
-		pending.fields[VF_STATUS].debug = "Pending";
+		pending.fields[VF_SID].summary = "Loading";
+		pending.fields[VF_SID].full = "Airport data not loaded yet.";
+		pending.fields[VF_STATUS].summary = "Pending";
+		pending.fields[VF_STATUS].full = "Pending";
 		pending.itemString = "PDG";
 		pending.ready = false;
 		pending.passed = false;
@@ -2805,8 +2889,8 @@ void CVFPCPlugin::SetPending_(ValidationResult& result, const std::string& text)
 	result.passed = false;
 	result.status = ValidationStatus::Pending;
 	result.itemString = text.empty() ? "PDG" : text;
-	result.fields[VF_STATUS].normal = "Pending";
-	result.fields[VF_STATUS].debug = "Pending";
+	result.fields[VF_STATUS].summary = "Pending";
+	result.fields[VF_STATUS].full = "Pending";
 }
 
 void CVFPCPlugin::SetPassed_(ValidationResult& result, const std::string& text) const
@@ -2815,8 +2899,8 @@ void CVFPCPlugin::SetPassed_(ValidationResult& result, const std::string& text) 
 	result.passed = true;
 	result.status = ValidationStatus::Passed;
 	result.itemString = text;
-	result.fields[VF_STATUS].normal = "Passed";
-	result.fields[VF_STATUS].debug = "Passed";
+	result.fields[VF_STATUS].summary = "Passed";
+	result.fields[VF_STATUS].full = "Passed";
 }
 
 void CVFPCPlugin::SetFailed_(ValidationResult& result, const std::string& text) const
@@ -2825,19 +2909,18 @@ void CVFPCPlugin::SetFailed_(ValidationResult& result, const std::string& text) 
 	result.passed = false;
 	result.status = ValidationStatus::Failed;
 	result.itemString = text;
-	result.fields[VF_STATUS].normal = "Failed";
-	result.fields[VF_STATUS].debug = "Failed";
+	result.fields[VF_STATUS].summary = "Failed";
+	result.fields[VF_STATUS].full = "Failed";
 }
 
-void CVFPCPlugin::SetNotChecked_(ValidationResult& result, const
-	std::string& text) const
+void CVFPCPlugin::SetNotChecked_(ValidationResult& result, const std::string& text) const
 {
 	result.ready = true;
 	result.passed = false;
 	result.status = ValidationStatus::NotChecked;
 	result.itemString = text;
-	result.fields[VF_STATUS].normal = "Not Checked";
-	result.fields[VF_STATUS].debug = "Not Checked";
+	result.fields[VF_STATUS].summary = "Not Checked";
+	result.fields[VF_STATUS].full = "Not Checked";
 }
 
 void CVFPCPlugin::SetField_(ValidationResult& result,
@@ -2845,8 +2928,8 @@ void CVFPCPlugin::SetField_(ValidationResult& result,
 	const std::string& normal,
 	const std::string& debug) const
 {
-	result.fields[field].normal = normal;
-	result.fields[field].debug = debug;
+	result.fields[field].summary = normal;
+	result.fields[field].full = debug;
 }
 
 void CVFPCPlugin::SetFieldIfUnset_(ValidationResult& result,
@@ -2854,9 +2937,9 @@ void CVFPCPlugin::SetFieldIfUnset_(ValidationResult& result,
 	const std::string& normal,
 	const std::string& debug) const
 {
-	if (result.fields[field].normal == "-" || result.fields[field].normal.empty()) {
-		result.fields[field].normal = normal;
-		result.fields[field].debug = debug;
+	if (result.fields[field].summary == "-" || result.fields[field].summary.empty()) {
+		result.fields[field].summary = normal;
+		result.fields[field].full = debug;
 	}
 }
 
@@ -2871,13 +2954,13 @@ void CVFPCPlugin::SetBlockedFields_(ValidationResult& result,
 
 bool CVFPCPlugin::FieldIndicatesFailure_(const ValidationResult::Field& field) const
 {
-	if (field.normal == "ERR") return true;
-	if (field.normal.rfind("Failed", 0) == 0) return true;
-	if (field.normal == "No SIDs") return true;
-	if (field.normal == "SID Required") return true;
-	if (field.normal == "SID Not Found") return true;
-	if (field.normal == "SID Data Invalid") return true;
-	if (field.normal == "Invalid Suffix.") return true;
+	if (field.summary == "ERR") return true;
+	if (field.summary.rfind("Failed", 0) == 0) return true;
+	if (field.summary == "No SIDs") return true;
+	if (field.summary == "SID Required") return true;
+	if (field.summary == "SID Not Found") return true;
+	if (field.summary == "SID Data Invalid") return true;
+	if (field.summary == "Invalid Suffix.") return true;
 	return false;
 }
 
@@ -2895,8 +2978,8 @@ void CVFPCPlugin::FinalizeValidationResult_(ValidationResult& result) const
 			any_failure = true;
 		}
 
-		const std::string& normal = result.fields[i].normal;
-		if (normal == "Loading" || normal == "Pending" || normal == "...") {
+		const std::string& summary = result.fields[i].summary;
+		if (summary == "Loading" || summary == "Pending" || summary == "...") {
 			any_pending = true;
 		}
 	}
@@ -2906,20 +2989,20 @@ void CVFPCPlugin::FinalizeValidationResult_(ValidationResult& result) const
 	if (any_failure) {
 		result.status = ValidationStatus::Failed;
 		result.passed = false;
-		result.fields[VF_STATUS].normal = "Failed";
-		result.fields[VF_STATUS].debug = "Failed";
+		result.fields[VF_STATUS].summary = "Failed";
+		result.fields[VF_STATUS].full = "Failed";
 	}
 	else if (any_pending) {
 		result.status = ValidationStatus::Pending;
 		result.passed = false;
-		result.fields[VF_STATUS].normal = "Pending";
-		result.fields[VF_STATUS].debug = "Pending";
+		result.fields[VF_STATUS].summary = "Pending";
+		result.fields[VF_STATUS].full = "Pending";
 	}
 	else {
 		result.status = ValidationStatus::Passed;
 		result.passed = true;
-		result.fields[VF_STATUS].normal = "Passed";
-		result.fields[VF_STATUS].debug = "Passed";
+		result.fields[VF_STATUS].summary = "Passed";
+		result.fields[VF_STATUS].full = "Passed";
 	}
 }
 
@@ -4067,7 +4150,7 @@ void CVFPCPlugin::OnFunctionCall(int FunctionId, const char*
 		}
 		else if (FunctionId == TAG_FUNC_CHECKFP_DISMISS) {
 			CFlightPlan flightPlan = FlightPlanSelectASEL();
-			if (Enabled(flightPlan)) {
+			if (ChecksEnabledForFlightPlan(flightPlan)) {
 				flightPlan.GetControllerAssignedData().SetFlightStripAnnotation(0, "VFPC/OFF");
 			}
 			else {
@@ -4086,7 +4169,7 @@ void CVFPCPlugin::OnFunctionCall(int FunctionId, const char*
 	}
 }
 
-bool CVFPCPlugin::Enabled(CFlightPlan flightPlan) {
+bool CVFPCPlugin::ChecksEnabledForFlightPlan(CFlightPlan flightPlan) {
 	try {
 		string cad = flightPlan.GetControllerAssignedData().GetFlightStripAnnotation(0);
 		if (!strcmp(cad.c_str(), "VFPC/OFF")) return false;
@@ -4134,9 +4217,15 @@ void CVFPCPlugin::OnGetTagItem(CFlightPlan flightPlan,
 		auto snap = airport_data_.load(std::memory_order_acquire);
 		const bool version_ok = validVersion.load(std::memory_order_acquire);
 
-		if (!version_ok || !Enabled(flightPlan)) {
+		if (!version_ok) {
 			strcpy_s(sItemString, 16, "ERR");
 			if (pRGB) *pRGB = plugin_config_.TAG_RED;
+			return;
+		}
+
+		if (!ChecksEnabledForFlightPlan(flightPlan)) {
+			strcpy_s(sItemString, 16, "OFF");
+			if (pRGB) *pRGB = plugin_config_.TAG_GREY;
 			return;
 		}
 
@@ -4214,19 +4303,20 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 			getSids();
 			return true;
 		}
-		//Activate Debug Logging
-		else if (startsWith((COMMAND_PREFIX + LOG_COMMAND).c_str(), sCommandLine)) {
-			if (debugMode) {
-				LOG_INFO("Logging mode deactivated.");
-				debugMode = false;
-			}
-			else {
-				debugMode = true;
-				LOG_INFO("Logging mode activated.");
-			}
+		// Set console output to full validation details
+		else if (startsWith((COMMAND_PREFIX + "full").c_str(), sCommandLine)) {
+			console_results_view_ = ResultsView::Full;
+			SendToConsole(vfpc::urgent, "Console results view set to FULL.");
+			LOG_INFO("Console results view set to FULL");
 			return true;
 		}
-		//Text-Equivalent of "Show Checks" Button
+		// Set console output to summary validation details
+		else if (startsWith((COMMAND_PREFIX + "summary").c_str(), sCommandLine)) {
+			console_results_view_ = ResultsView::Summary;
+			SendToConsole(vfpc::urgent, "Console results view set to SUMMARY.");
+			LOG_INFO("Console results view set to SUMMARY");
+			return true;
+		}
 		else if (startsWith((COMMAND_PREFIX + CHECK_COMMAND).c_str(), sCommandLine)) {
 			checkFPDetail();
 			return true;
@@ -4267,7 +4357,7 @@ void CVFPCPlugin::checkFPDetail()
 				result = it->second.last_result;
 			}
 		}
-		OutputValidationResultToConsole_(result, debugMode);
+		OutputValidationResultToConsole_(result, console_results_view_);
 	}
 	catch (const std::exception& ex) {
 		LOG_ERROR("checkFPDetail error: {}", ex.what());

@@ -3,6 +3,8 @@
 
 #include <string>
 #include <algorithm>
+#include <vector>
+#include <sstream>
 
 inline std::string to_upper(std::string s) {
 	std::string result = s;
@@ -60,6 +62,18 @@ inline std::string ExtractValidIcaoFromPosition(const std::string& callsign_with
     if (us == std::string::npos || us == 0) return {};
     std::string icao = norm_icao(u.substr(0, us));
     return IsValidIcao(icao) ? icao : std::string{};
+}
+
+// Converts a vector of strings to a single string, separated by spaces.
+inline std::string vectorToString(const std::vector<std::string>& vec) {
+    std::ostringstream oss;
+    for (size_t i = 0; i < vec.size(); ++i) {
+        oss << vec[i];
+        if (i != vec.size() - 1) {
+            oss << " ";
+        }
+    }
+    return oss.str();
 }
 
 
