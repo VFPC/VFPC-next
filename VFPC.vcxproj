@@ -118,7 +118,7 @@
     <LinkIncremental>false</LinkIncremental>
     <IncludePath>$(IncludePath)</IncludePath>
     <LibraryPath>$(LibraryPath)</LibraryPath>
-    <OutDir>$(AppData)\EuroScope\UK\Data\Plugin\VFPC</OutDir>
+    <OutDir>$(AppData)\EuroScope\UK\Data\Plugin\VFPC\</OutDir>
     <IntDir>$(SolutionDir)bin\$(Configuration)\</IntDir>
     <ExternalIncludePath>$(ProjectDir)VFPC\lib\include;$(ExternalIncludePath)</ExternalIncludePath>
   </PropertyGroup>
@@ -194,7 +194,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>lib\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <TreatAngleIncludeAsExternal>true</TreatAngleIncludeAsExternal>
       <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
