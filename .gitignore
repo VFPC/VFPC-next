@@ -158,3 +158,6 @@ lib/include/
 !*.rc
 !resource.h
 test_results.json
+/tmp
+/VFPC_Check
+/VFPC_Check
