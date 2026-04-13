@@ -44,9 +44,12 @@ log/
 
 # JetBrains
 .idea/
+.fleet/
 *.iml
 *.iws
 *.ipr
+*.DotSettings.user
+*.sln.DotSettings.user
 
 # Visual Studio
 .vs/
@@ -145,11 +148,6 @@ build.ninja
 .ninja_log
 
 ############################
-# Project-specific exclusions
-############################
-lib/include/
-
-############################
 # Keep important project files
 ############################
 !*.sln
@@ -158,6 +156,4 @@ lib/include/
 !*.rc
 !resource.h
 test_results.json
-/tmp
-/VFPC_Check
-/VFPC_Check
+/tmp/
