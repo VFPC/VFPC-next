@@ -45,5 +45,8 @@ bool InitialiseConfig(const std::string& filepath, PluginConfig& plugin_config) 
 	plugin_config.TAG_YELLOW = RGB(yellow.r, yellow.g, yellow.b);
 	plugin_config.TAG_GREY = RGB(grey.r, grey.g, grey.b);
 
+	plugin_config.console_results_view = config.ConsoleResultsView();
+	plugin_config.config_warnings = config.warnings();
+
     return true;
 }

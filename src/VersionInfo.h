@@ -38,7 +38,7 @@
 #define VFPC_FILE_DESCRIPTION    "VFPC EuroScope Plugin"
 #define VFPC_INTERNAL_NAME       "VFPC"
 #define VFPC_ORIGINAL_FILENAME   "VFPC.dll"
-#define VFPC_COMPANY_NAME        "Peter Richardson"
-#define VFPC_COPYRIGHT_TEXT      "Copyright (C) 2026 Peter Richardson"
+#define VFPC_COMPANY_NAME        "Peter Richardson, Lenny Colton, Jan Fries, Hendrik Peter, Sven Czarnian"
+#define VFPC_COPYRIGHT_TEXT      "GPL v3"
 
 #endif //VERSIONINFO_H

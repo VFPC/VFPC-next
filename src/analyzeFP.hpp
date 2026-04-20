@@ -2,21 +2,23 @@
 // 1. Includes / forward declarations
 //==============================================================
 #include <atomic>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include <fmt/format.h>
+#include <Windows.h>
 #include <rapidjson/document.h>
 #include "Constant.hpp"
 #include "Utils.h"
 #include "PluginConfig.h"
 #include "Log.h"
 
-using namespace std;
-using namespace rapidjson;
-using namespace EuroScopePlugIn;
+//using namespace std;
+//using namespace rapidjson;
+//using namespace EuroScopePlugIn;
 //==============================================================
 // Validation data structures
 //==============================================================
@@ -139,42 +141,42 @@ public:
 	//==============================================================
 	// 6. API / data loading
 	//==============================================================
-	virtual bool webCall(string url, string& out, std::stop_token st);
-	virtual bool APICall(const string& base_url, const string& endpoint, std::stop_token st, Document& out);
-	virtual bool fileCall(Document& out);
+	virtual bool webCall(std::string url, std::string& out, std::stop_token st);
+	virtual bool APICall(const std::string& base_url, const std::string& endpoint, std::stop_token st, rapidjson::Document& out);
+	virtual bool fileCall(rapidjson::Document& out);
 	// Triggers an async reload of airport/SID data (worker thread builds snapshot)
 	virtual void getSids();
 
 	//==============================================================
 	// 7. Validation entry points
 	//==============================================================
-	virtual vector<bool> checkDestination(const Value& constraints, const string& destination, vector<bool>& in)const;
-	virtual vector<bool> checkExitPoint(const Value& constraints, const vector<string>& extracted_route, vector<bool>& in)const;
-	virtual vector<bool> checkRoute(const Value& constraints, const vector<string>& extracted_route, vector<bool>& in)const;
-	virtual vector<bool> checkMinMax(const Value& constraints, int RFL, vector<bool>& in)const;
-	virtual vector<bool> checkDirection(const Value& constraints, int RFL, vector<bool>& in)const;
-	virtual vector<bool> checkAlerts(const Value& constraints, bool* warn, vector<bool>& in)const;
+	virtual std::vector<bool> checkDestination(const rapidjson::Value& constraints, const std::string& destination, std::vector<bool>& in)const;
+	virtual std::vector<bool> checkExitPoint(const rapidjson::Value& constraints, const std::vector<std::string>& extracted_route, std::vector<bool>& in)const;
+	virtual std::vector<bool> checkRoute(const rapidjson::Value& constraints, const std::vector<std::string>& extracted_route, std::vector<bool>& in)const;
+	virtual std::vector<bool> checkMinMax(const rapidjson::Value& constraints, int RFL, std::vector<bool>& in)const;
+	virtual std::vector<bool> checkDirection(const rapidjson::Value& constraints, int RFL, std::vector<bool>& in)const;
+	virtual std::vector<bool> checkAlerts(const rapidjson::Value& constraints, bool* warn, std::vector<bool>& in)const;
 	virtual void checkFPDetail();
 	//==============================================================
 	// 8. Validation output formatting
 	//==============================================================
-	virtual string BansOutput(const Value& constraints, vector<size_t> successes, vector<string> extracted_route, string dest, int rfl) const;
-	virtual string WarningsOutput(const Value& constraints, vector<size_t> successes, vector<string> extracted_route, string dest, int rfl)const;
-	virtual string AlternativesOutput(const Value& sid_ele, vector<size_t> successes = {})const;
-	virtual vector<string> AlternativesSingle(const Value& sid_ele) const;
-	virtual string RestrictionsOutput(const Value& sid_ele, bool check_type = true, bool check_time = true, bool check_ban = true, vector<size_t> successes = {})const;
-	virtual vector<vector<string>> RestrictionsSingle(const Value& restrictions, bool check_type = true, bool check_time = true, bool check_ban = true)const;
-	virtual string SuffixOutput(const Value& sid_ele, vector<size_t> successes = {})const;
-	virtual vector<string> SuffixSingle(const Value& restrictions) const;
-	virtual string DirectionOutput(const Value& constraints, vector<size_t> successes)const;
-	virtual string MinMaxOutput(const Value& constraints, vector<size_t> successes)const;
-	virtual string RouteOutput(const Value& constraints, const vector<string>& extracted_route, const string& dest, int rfl, bool req_lvl)const;
-	virtual string ExitPointOutput(const rapidjson::Value& airport, vector<string> extracted_route)const;
-	virtual string DestinationOutput(const rapidjson::Value& airport, const string& dest)const;
+	virtual std::string BansOutput(const rapidjson::Value& constraints, std::vector<size_t> successes, std::vector<std::string> extracted_route, std::string dest, int rfl) const;
+	virtual std::string WarningsOutput(const rapidjson::Value& constraints, std::vector<size_t> successes, std::vector<std::string> extracted_route, std::string dest, int rfl)const;
+	virtual std::string AlternativesOutput(const rapidjson::Value& sid_ele, std::vector<size_t> successes = {})const;
+	virtual std::vector<std::string> AlternativesSingle(const rapidjson::Value& sid_ele) const;
+	virtual std::string RestrictionsOutput(const rapidjson::Value& sid_ele, bool check_type = true, bool check_time = true, bool check_ban = true, std::vector<size_t> successes = {})const;
+	virtual std::vector<std::vector<std::string>> RestrictionsSingle(const rapidjson::Value& restrictions, bool check_type = true, bool check_time = true, bool check_ban = true)const;
+	virtual std::string SuffixOutput(const rapidjson::Value& sid_ele, std::vector<size_t> successes = {})const;
+	virtual std::vector<std::string> SuffixSingle(const rapidjson::Value& restrictions) const;
+	virtual std::string DirectionOutput(const rapidjson::Value& constraints, std::vector<size_t> successes)const;
+	virtual std::string MinMaxOutput(const rapidjson::Value& constraints, std::vector<size_t> successes)const;
+	virtual std::string RouteOutput(const rapidjson::Value& constraints, const std::vector<std::string>& extracted_route, const std::string& dest, int rfl, bool req_lvl)const;
+	virtual std::string ExitPointOutput(const rapidjson::Value& airport, std::vector<std::string> extracted_route)const;
+	virtual std::string DestinationOutput(const rapidjson::Value& airport, const std::string& dest)const;
 	//==============================================================
 	// 9. UI / console helpers
 	//==============================================================
-	virtual bool ChecksEnabledForFlightPlan(CFlightPlan flightPlan);
+	virtual bool ChecksEnabledForFlightPlan(const EuroScopePlugIn::CFlightPlan& flightPlan);
 	void SendToConsole(const char* msg, bool urgent = false);
 
 	template <typename... Args>
@@ -202,12 +204,13 @@ public:
 	//==============================================================
 	virtual bool OnCompileCommand(const char* sCommandLine) override;
 	virtual void OnFunctionCall(int FunctionId, const char* ItemString, POINT Pt, RECT Area);
-	virtual void OnGetTagItem(CFlightPlan FlightPlan,
-		CRadarTarget RadarTarget, int ItemCode,
+	virtual void OnGetTagItem(EuroScopePlugIn::CFlightPlan FlightPlan,
+		EuroScopePlugIn::CRadarTarget RadarTarget, int ItemCode,
 		int TagData, char sItemString[16],
 		int* pColorCode,
 		COLORREF* pRGB,
 		double* pFontSize);
+
 	virtual void OnTimer(int Count) override;
 	//==============================================================
 	// 11. Snapshot state shared across threads
@@ -220,10 +223,10 @@ public:
 	//==============================================================
 	// 12. Public utility helpers.
 	//==============================================================
-	string destArrayContains(const Value& a, string s)const {
-		for (SizeType i = 0; i < a.Size(); i++) {
-			string test = a[i].GetString();
-			SizeType x = static_cast<rapidjson::SizeType>(s.rfind(
+	std::string destArrayContains(const rapidjson::Value& a, std::string s)const {
+		for (rapidjson::SizeType i = 0; i < a.Size(); i++) {
+			std::string test = a[i].GetString();
+			rapidjson::SizeType x = static_cast<rapidjson::SizeType>(s.rfind(
 				test, 0));
 			if (s.rfind(a[i].GetString(), 0) != -1)
 				return a[i].GetString();
@@ -231,14 +234,14 @@ public:
 		return "";
 	}
 
-	bool arrayContainsEnding(const Value& a, string s)const {
-		for (SizeType i = 0; i < a.Size(); i++) {
-			string comp = a[i].GetString();
+	bool arrayContainsEnding(const rapidjson::Value& a, std::string s)const {
+		for (rapidjson::SizeType i = 0; i < a.Size(); i++) {
+			std::string comp = a[i].GetString();
 			int pos = s.size() - comp.size();
 			if (pos < 0)
 				continue;
 			bool valid = true;
-			for (SizeType i = 0; i < comp.size(); i++) {
+			for (rapidjson::SizeType i = 0; i < comp.size(); i++) {
 				if (comp[i] != s[pos + i])
 					valid = false;
 			}
@@ -248,17 +251,17 @@ public:
 		return false;
 	}
 
-	bool arrayContainsString(const Value& a, const string& s)const {
-		for (SizeType i = 0; i < a.Size(); i++) {
+	bool arrayContainsString(const rapidjson::Value& a, const std::string& s)const {
+		for (rapidjson::SizeType i = 0; i < a.Size(); i++) {
 			if (a[i].GetString() == s)
 				return true;
 		}
 		return false;
 	}
 
-	string arrayToString(const Value& a, char delimiter) {
-		string s;
-		for (SizeType i = 0; i < a.Size(); i++) {
+	std::string arrayToString(const rapidjson::Value& a, char delimiter) {
+		std::string s;
+		for (rapidjson::SizeType i = 0; i < a.Size(); i++) {
 			s += a[i].GetString()[0];
 			if (i != a.Size() - 1)
 				s += delimiter;
@@ -266,14 +269,61 @@ public:
 		return s;
 	}
 
-	bool routeContains(vector<string> filed_route, const Value& constraint_route_array)const {
-		for (SizeType i = 0; i < constraint_route_array.Size(); i++) {
-			string route = constraint_route_array[i].GetString();
+	bool routeContains(
+		const std::vector<std::string>& filed_route,
+		const rapidjson::Value& constraint_route_array) const
+	{
+		for (rapidjson::SizeType i = 0; i < constraint_route_array.Size(); ++i) {
+			if (!constraint_route_array[i].IsString()) {
+				continue;
+			}
+
+			std::string route = constraint_route_array[i].GetString();
+			LOG_TRACE("Checking route constraint index [{}] {} against filed route {}",
+				i, route, vectorToString(filed_route));
+
+			if (route == WILDCARD) {
+				return true;
+			}
+
+			std::vector<std::string> waypoints = split(route, ' ');
+			for (std::string& wp : waypoints) {
+				to_upper(wp);
+			}
+
+			if (waypoints.size() > filed_route.size()) {
+				continue;
+			}
+
+			bool admissible = true;
+			for (size_t j = 0; j < waypoints.size(); ++j) {
+				if (waypoints[j] == WILDCARD) {
+					continue;
+				}
+				if (waypoints[j] != filed_route[j]) {
+					LOG_TRACE("Route mismatch at token {}: expected='{}' actual='{}'",
+						j, waypoints[j], filed_route[j]);
+					admissible = false;
+					break;
+				}
+			}
+
+			if (admissible) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+	/*
+	bool routeContains(std::vector<std::string> filed_route, const rapidjson::Value& constraint_route_array)const {
+		for (rapidjson::SizeType i = 0; i < constraint_route_array.Size(); i++) {
+			std::string route = constraint_route_array[i].GetString();
 			LOG_TRACE("Checking route constraint index [{}] {} against filed route {}", i, route, vectorToString(filed_route));
 			if (!strcmp(route.c_str(), WILDCARD.c_str())) {
 				return true;
 			}
-			vector<string> waypoints = split(route, ' ');
+			std::vector<std::string> waypoints = split(route, ' ');
 			for (std::size_t j = 0; j < waypoints.size(); j++) {
 				to_upper(waypoints[j]);
 			}
@@ -282,7 +332,7 @@ public:
 				admissible = false;
 			}
 			else {
-				for (SizeType j = 0; j < waypoints.size(); j++) {
+				for (rapidjson::SizeType j = 0; j < waypoints.size(); j++) {
 					if (waypoints[j] != filed_route[j] && strcmp(waypoints[j].c_str
 					(), WILDCARD.c_str())) {
 						admissible = false;
@@ -295,7 +345,7 @@ public:
 		}
 		return false;
 	}
-
+	*/
 	string dayIntToString(int day)const {
 		switch (day) {
 		case 0:
@@ -398,7 +448,6 @@ private:
 		bool time = false;
 		bool banned = false;
 	};
-
 	struct SidRestrictionResult
 	{
 		bool has_restrictions = false;
@@ -407,7 +456,6 @@ private:
 									 // or if no SID-level restrictions exist
 		RestrictionFailureFlags fails;
 	};
-
 	struct ConstraintRestrictionResult
 	{
 		bool has_restrictions = false;
@@ -420,52 +468,51 @@ private:
 	//==========================================================
 	void StartVersionCheckAsync();
 	bool VersionCall_Worker(PluginConfig plugin_config, std::stop_token st);
-	bool FetchSidsInto_(SidSource source, const string& activeAirportIcao, stop_token st, Document& out);
+	bool FetchSidsInto_(SidSource source, const std::string& activeAirportIcao, std::stop_token st, rapidjson::Document& out);
 	//==========================================================
 	// 15. Validation support helpers
 	//==========================================================
 	ValidationResult ValidateFlightPlan_(const FlightPlanRow& row) const;
 
-	bool NormaliseAndValidateRouteSyntax_(vector<string>& route,
-		const string& origin,
-		const string& destination,
-		const string& sid,
-		const string& first_wp,
-		string& outchk) const;
-
+	bool NormaliseAndValidateRouteSyntax_(std::vector<std::string>& route,
+		const std::string& origin,
+		const std::string& destination,
+		const std::string& sid,
+		const std::string& first_wp,
+		std::string& outchk) const;
 	bool TryFindSidIndex_(const rapidjson::Value& sids,
 		const string& first_wp,
 		size_t& pos)const;
 
-	bool IsIfrFlightPlan_(const CFlightPlan& flightPlan)const;
+	bool IsIfrFlightPlan_(const EuroScopePlugIn::CFlightPlan& flightPlan)const;
 
-	ParsedFlightPlanData CParseFlightPlanData_(CFlightPlan flightPlan) const;
+	ParsedFlightPlanData CParseFlightPlanData_(const EuroScopePlugIn::CFlightPlan& flightPlan) const;
 
-	void SetResultField(vector<vector<string>>& out,
+	void SetResultField(std::vector<std::vector<std::string>>& out,
 		ValidationField field,
-		const string& normal,
-		const string& debug);
+		const std::string& normal,
+		const std::string& debug);
 
-	void SetResultBoth(vector<vector<string>>& out,
+	void SetResultBoth(std::vector<std::vector<std::string>>& out,
 		ValidationField field,
-		const string& text);
-
-	vector<vector<string>> ReturnWithField(vector<vector<string>>& out,
+		const std::string& text);
+	std::vector<std::vector<std::string>> ReturnWithField(std::vector<std::vector<std::string>>& out,
 		ValidationField field,
-		const string& normal,
-		const string& debug);
-
-	vector<vector<string>> ReturnWithBoth(vector<vector<string>>& out,
+		const std::string& normal,
+		const std::string& debug);
+	std::vector<std::vector<std::string>> ReturnWithBoth(std::vector<std::vector<std::string>>& out,
 		ValidationField field,
-		const string& text);
+		const std::string& text);
 
 	ValidationResult MakePendingResult_(const std::string& callsign,
 		const std::string& normal = "Loading",
 		const std::string& debug = "Airport data not loaded yet.")
 		const;
 
-	bool RouteContainsAnyPoint_(const Value& arr,
-		const vector<string>& route) const;
+	void ShowConfigStatus_();
+
+	bool RouteContainsAnyPoint_(const rapidjson::Value& arr,
+		const std::vector<std::string>& route) const;
 
 	bool RestrictionSelectorsMatch_(
 		const FlightPlanRow& row,
@@ -489,6 +536,29 @@ private:
 		const rapidjson::Value& conditions,
 		RestrictionFailureFlags& aggregate_failures,
 		std::vector<bool>& in) const;
+
+	bool ConstraintAllowsDestination_(const rapidjson::Value& cond,
+		const std::string& destination) const;
+
+	bool ConstraintAllowsLevel_(const rapidjson::Value& cond,
+		int rfl) const;
+
+	std::string BuildShortRouteExample_(const rapidjson::Value& cond) const;
+
+	std::vector<std::string> CollectRouteExamples_(
+		const rapidjson::Value& constraints,
+		const std::string& destination,
+		int rfl) const;
+
+	std::string RouteOutputShort_(const rapidjson::Value& constraints,
+		const std::string& destination,
+		int rfl,
+		std::size_t max_examples = 2) const;
+
+	std::string RouteOutputFailureDetail_(const rapidjson::Value& constraints,
+		const std::string& destination,
+		int rfl,
+		std::size_t max_examples = 5) const;
 
 	//==========================================================
 	// 16. Active airport helpers
@@ -537,7 +607,7 @@ private:
 
 	bool CanValidateFlightPlans_() const;
 
-	FlightPlanRow BuildFlightPlanRow_(const CFlightPlan& flightPlan) const;
+	FlightPlanRow BuildFlightPlanRow_(const EuroScopePlugIn::CFlightPlan& flightPlan) const;
 
 	//==========================================================
 	// 18. Vaidation result helpers
@@ -572,7 +642,7 @@ private:
 	//==========================================================
 	// 19. Private state
 	//==========================================================
-	string base_url_;
+	std::string base_url_;
 	// version checking
 	std::jthread version_thread_;
 
@@ -580,13 +650,13 @@ private:
 	std::jthread airport_thread_;
 
 	// pending snapshot produced by worker, applied on main thread
-	mutex pending_mtx_;
-	shared_ptr<AirportValidationData> pending_snapshot_;
-	atomic_bool pending_ready_{ false };
+	std::mutex pending_mtx_;
+	std::shared_ptr<AirportValidationData> pending_snapshot_;
+	std::atomic_bool pending_ready_{ false };
 
 	// active airports tracking (from tag items)
-	mutable mutex active_mtx_;
-	string active_airport_;
+	mutable std::mutex active_mtx_;
+	std::string active_airport_;
 	bool active_airport_locked_ = false; // true, once airport has been determined.
 
 	ActiveAirportSource active_airport_source_ = ActiveAirportSource::None;
@@ -613,8 +683,8 @@ protected:
 	// 20. Protected version state.
 	//==========================================================
 	int* thisVersion = nullptr;
-	vector<int> curVersion;
-	vector<int> minVersion;
+	std::vector<int> curVersion;
+	std::vector<int> minVersion;
 };
 
 //==============================================================
