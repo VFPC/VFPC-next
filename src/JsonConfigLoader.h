@@ -22,6 +22,9 @@ static constexpr const char* kConfigFileName = "vfpc_config.json";
 class JsonConfigLoader {
 public:
     bool load(const std::string& filename) {
+
+		warnings_.clear();
+
         std::ifstream file(filename, std::ios::binary);
         if (!file.is_open()) {
             log_error("Config not found. Creating default file: " + filename);
@@ -61,41 +64,62 @@ public:
     }
 
     bool validate_and_apply_defaults() {
+        auto& alloc = config_doc_.GetAllocator();
+
+        warn_unknown_keys_(config_doc_,
+            { "spdlog", "curl", "colours", "console_results_view" },
+            "top-level config");
+
         // --- spdlog section ---
         if (!validate_section("spdlog", {
-                {"log_directory", FieldType::String,  false, "" },
-                {"log_filename",  FieldType::String,  false, "" },
-                {"max_files",     FieldType::Integer, true,  "5"},
+                {"log_directory", FieldType::String,  true, "uk/data/plugin/vfpc/log" },
+                {"log_filename",  FieldType::String,  true, "vfpc2_log.txt" },
+                {"max_files",     FieldType::Integer, true, "5"},
                 {"flush_interval_sec", FieldType::Integer, true, "1"},
-                {"pattern",       FieldType::String,  true,  "[%Y-%m-%d %H:%M:%S] [%l] %v"},
-                {"level",         FieldType::String,  true,  "info"},
-			    {"flush_level",   FieldType::String,  true,  "info"},
-                {"truncate",      FieldType::Boolean, true,  "false"}
+                {"pattern",       FieldType::String,  true, "[%Y-%m-%d %H:%M:%S] [%l] %v"},
+                {"level",         FieldType::String,  true, "info"},
+                {"flush_level",   FieldType::String,  true, "info"},
+                {"truncate",      FieldType::Boolean, true, "false"}
             })) return false;
+
+        warn_unknown_keys_(config_doc_["spdlog"],
+            { "log_directory", "log_filename", "max_files", "flush_interval_sec",
+              "pattern", "level", "flush_level", "truncate" },
+            "section 'spdlog'");
 
         // --- curl section ---
         if (!validate_section("curl", {
-                {"base_url",            FieldType::String,  false, "" },
-                {"airport_endpoint",    FieldType::String, false, "" },
-				{"version_endpoint",    FieldType::String, false, "" },
-                {"timeout_sec",         FieldType::Integer, true,  "30"},
-                {"verify_ssl",          FieldType::Boolean, true,  "true"},
-                {"user_agent",          FieldType::String,  true,  "VFPC2Plugin/1.0"}        
+                {"base_url",         FieldType::String,  true, "https://vfpcplugin.org/" },
+                {"airport_endpoint", FieldType::String,  true, "airport?icao=" },
+                {"version_endpoint", FieldType::String,  true, "version" },
+                {"timeout_sec",      FieldType::Integer, true, "30"},
+                {"verify_ssl",       FieldType::Boolean, true, "true"},
+                {"user_agent",       FieldType::String,  true, "VFPC2Plugin/1.0"}
             })) return false;
 
-        // curl.default_headers must exist and be an object
+        warn_unknown_keys_(config_doc_["curl"],
+            { "base_url", "airport_endpoint", "version_endpoint",
+              "timeout_sec", "verify_ssl", "user_agent", "default_headers" },
+            "section 'curl'");
+
+        // --- curl.default_headers ---
         if (!has_object_member_(config_doc_, "curl")) {
             log_error("Missing or invalid 'curl' section");
-            return false; // should already be caught by validate_section, but keep safe
-        }
-
-        rapidjson::Value& curl = config_doc_["curl"];
-        if (!has_object_member_(curl, "default_headers")) {
-            log_error("Missing or invalid 'curl.default_headers' object");
             return false;
         }
 
-        const rapidjson::Value& headers = curl["default_headers"];
+        rapidjson::Value& curl = config_doc_["curl"];
+        ensure_object_member_(curl, "default_headers", "section 'curl'", alloc);
+
+        rapidjson::Value& headers = curl["default_headers"];
+
+        warn_unknown_keys_(headers,
+            { "Accept", "Content-Type" },
+            "section 'curl.default_headers'");
+
+        ensure_string_member_(headers, "Accept", "application/json", "section 'curl.default_headers'", alloc);
+        ensure_string_member_(headers, "Content-Type", "application/json", "section 'curl.default_headers'", alloc);
+
         if (!validate_field(headers, "Accept", FieldType::String, "curl.default_headers")) return false;
         if (!validate_field(headers, "Content-Type", FieldType::String, "curl.default_headers")) return false;
 
@@ -109,25 +133,102 @@ public:
         }
 
         // --- colours section ---
-        if (!has_object_member_(config_doc_, "colours")) {
-            log_error("Missing or invalid 'colours' section");
-            return false;
+        if (!config_doc_.HasMember("colours") || !config_doc_["colours"].IsObject()) {
+            add_warning("Config: missing 'colours' section, defaulted to built-in values");
+            rapidjson::Value colours(rapidjson::kObjectType);
+            colours.AddMember("red", make_colour_object_(190, 0, 0, alloc), alloc);
+            colours.AddMember("amber", make_colour_object_(255, 165, 0, alloc), alloc);
+            colours.AddMember("green", make_colour_object_(0, 190, 0, alloc), alloc);
+            colours.AddMember("yellow", make_colour_object_(255, 165, 0, alloc), alloc);
+            colours.AddMember("grey", make_colour_object_(128, 128, 128, alloc), alloc);
+
+            if (config_doc_.HasMember("colours")) {
+                config_doc_["colours"] = colours;
+            }
+            else {
+                rapidjson::Value key;
+                key.SetString("colours", alloc);
+                config_doc_.AddMember(key, colours, alloc);
+            }
         }
 
-        const rapidjson::Value& colours = config_doc_["colours"];
+        rapidjson::Value& colours = config_doc_["colours"];
 
-        for (const char* colour_name : { "red", "amber", "green", "yellow", "grey"}) {
-            if (!has_object_member_(colours, colour_name)) {
-                log_error(std::string("Missing or invalid colour: ") + colour_name);
-                return false;
+        warn_unknown_keys_(colours,
+            { "red", "amber", "green", "yellow", "grey" },
+            "section 'colours'");
+
+        struct ColourDefault {
+            const char* name;
+            int r;
+            int g;
+            int b;
+        };
+
+        const ColourDefault defaults[] = {
+            { "red",    190, 0,   0   },
+            { "amber",  255, 165, 0   },
+            { "green",  0,   190, 0   },
+            { "yellow", 255, 165, 0   },
+            { "grey",   128, 128, 128 }
+        };
+
+        for (const auto& def : defaults) {
+            if (!colours.HasMember(def.name) || !colours[def.name].IsObject()) {
+                add_warning("Config: missing colour '" + std::string(def.name) +
+                    "', defaulted to built-in RGB");
+
+                rapidjson::Value name;
+                name.SetString(def.name, alloc);
+
+                rapidjson::Value colour = make_colour_object_(def.r, def.g, def.b, alloc);
+
+                if (colours.HasMember(def.name)) {
+                    colours[def.name] = colour;
+                }
+                else {
+                    colours.AddMember(name, colour, alloc);
+                }
             }
 
-            const rapidjson::Value& colour = colours[colour_name];
-            const std::string ctx = std::string("colours.") + colour_name;
+            rapidjson::Value& colour = colours[def.name];
 
+            warn_unknown_keys_(colour,
+                { "r", "g", "b" },
+                std::string("colour '") + def.name + "'");
+
+            ensure_int_member_(colour, "r", def.r, std::string("colour '") + def.name + "'", alloc);
+            ensure_int_member_(colour, "g", def.g, std::string("colour '") + def.name + "'", alloc);
+            ensure_int_member_(colour, "b", def.b, std::string("colour '") + def.name + "'", alloc);
+
+            const std::string ctx = std::string("colours.") + def.name;
             if (!validate_int_range(colour, "r", 0, 255, ctx)) return false;
             if (!validate_int_range(colour, "g", 0, 255, ctx)) return false;
             if (!validate_int_range(colour, "b", 0, 255, ctx)) return false;
+        }
+
+        // --- console_results_view ---
+        if (!config_doc_.HasMember("console_results_view")) {
+            add_warning("Config: missing 'console_results_view', defaulted to 'summary'");
+
+            rapidjson::Value key;
+            key.SetString("console_results_view", alloc);
+
+            rapidjson::Value val;
+            val.SetString("summary", alloc);
+
+            config_doc_.AddMember(key, val, alloc);
+        }
+        else if (!config_doc_["console_results_view"].IsString()) {
+            log_error("Invalid type for 'console_results_view' (expected string)");
+            return false;
+        }
+        else {
+            const std::string view = config_doc_["console_results_view"].GetString();
+            if (view != "full" && view != "summary") {
+                log_error("Invalid value for 'console_results_view' (must be 'full' or 'summary')");
+                return false;
+            }
         }
 
         return true;
@@ -198,6 +299,12 @@ public:
         doc.AddMember("colours", colours, alloc);
 
         // -------------------------------
+        // results view section.
+        // -------------------------------
+
+        doc.AddMember("console_results_view", "summary", alloc);
+
+        // -------------------------------
         // Write pretty JSON to disk
         // -------------------------------
         std::ofstream ofs(filename);
@@ -221,6 +328,18 @@ public:
 
     const rapidjson::Document& get() const {
         return config_doc_;
+    }
+
+    std::string ConsoleResultsView() const {
+        if (!config_doc_.HasMember("console_results_view") ||
+            !config_doc_["console_results_view"].IsString()) {
+            return "summary";
+        }
+        return config_doc_["console_results_view"].GetString();
+    }
+
+    const std::vector<std::string>& warnings() const {
+        return warnings_;
     }
 
     //--------------------------------
@@ -350,9 +469,133 @@ private:
     };
 
     rapidjson::Document config_doc_;
+	std::vector<std::string> warnings_;
 
     void log_error(const std::string& message) const {
         OutputDebugStringA((message + "\n").c_str());
+    }
+
+    void add_warning(const std::string& message) {
+        warnings_.push_back(message);
+        log_error(message);
+    }
+
+    rapidjson::Value make_string_value_(const std::string& s,
+        rapidjson::Document::AllocatorType& alloc) const
+    {
+        rapidjson::Value v;
+        v.SetString(s.c_str(), static_cast<rapidjson::SizeType>(s.size()), alloc);
+        return v;
+    }
+
+    rapidjson::Value make_colour_object_(int r, int g, int b,
+        rapidjson::Document::AllocatorType& alloc) const
+    {
+        rapidjson::Value colour(rapidjson::kObjectType);
+        colour.AddMember("r", r, alloc);
+        colour.AddMember("g", g, alloc);
+        colour.AddMember("b", b, alloc);
+        return colour;
+    }
+
+    void ensure_object_member_(rapidjson::Value& parent,
+        const char* key,
+        const std::string& warning_context,
+        rapidjson::Document::AllocatorType& alloc)
+    {
+        if (!parent.IsObject()) {
+            return;
+        }
+
+        if (!parent.HasMember(key)) {
+            add_warning("Config: missing '" + std::string(key) + "' in " +
+                warning_context + ", defaulted to empty object");
+
+            rapidjson::Value name;
+            name.SetString(key, alloc);
+
+            rapidjson::Value obj(rapidjson::kObjectType);
+            parent.AddMember(name, obj, alloc);
+        }
+    }
+
+    void ensure_string_member_(rapidjson::Value& parent,
+        const char* key,
+        const std::string& default_value,
+        const std::string& warning_context,
+        rapidjson::Document::AllocatorType& alloc)
+    {
+        if (!parent.IsObject()) {
+            return;
+        }
+
+        if (!parent.HasMember(key)) {
+            add_warning("Config: missing '" + std::string(key) + "' in " +
+                warning_context + ", defaulted to '" + default_value + "'");
+
+            rapidjson::Value name;
+            name.SetString(key, alloc);
+
+            rapidjson::Value val;
+            val.SetString(default_value.c_str(),
+                static_cast<rapidjson::SizeType>(default_value.size()),
+                alloc);
+
+            parent.AddMember(name, val, alloc);
+        }
+    }
+
+    void ensure_int_member_(rapidjson::Value& parent,
+        const char* key,
+        int default_value,
+        const std::string& warning_context,
+        rapidjson::Document::AllocatorType& alloc)
+    {
+        if (!parent.IsObject()) {
+            return;
+        }
+
+        if (!parent.HasMember(key)) {
+            add_warning("Config: missing '" + std::string(key) + "' in " +
+                warning_context + ", defaulted to '" + std::to_string(default_value) + "'");
+
+            rapidjson::Value name;
+            name.SetString(key, alloc);
+
+            rapidjson::Value val;
+            val.SetInt(default_value);
+
+            parent.AddMember(name, val, alloc);
+        }
+    }
+
+    void warn_unknown_keys_(const rapidjson::Value& obj,
+        std::initializer_list<const char*> allowed,
+        const std::string& context)
+    {
+        if (!obj.IsObject()) {
+            return;
+        }
+
+        for (auto it = obj.MemberBegin(); it != obj.MemberEnd(); ++it) {
+            if (!it->name.IsString()) {
+                continue;
+            }
+
+            const std::string key = it->name.GetString();
+            bool known = false;
+
+            for (const char* allowed_key : allowed) {
+                if (key == allowed_key) {
+                    known = true;
+                    break;
+                }
+            }
+
+            if (!known) {
+                add_warning("Config: unknown key '" + key + "' in " + context);
+            }
+        }
     }
 
     // --- helpers ---
@@ -378,8 +621,8 @@ private:
 
             if (!sec.HasMember(key)) {
                 if (field.optional_with_default) {
-                    log_error("Optional field '" + field.name + "' missing in section '" +
-                        section + "', applying default: " + field.default_value);
+                    add_warning("Config: missing '" + field.name + "' in section '" +
+                        section + "', defaulted to '" + field.default_value + "'");
 
                     // Create the member and set default
                     rapidjson::Value k;

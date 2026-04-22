@@ -54,6 +54,7 @@ log/
 # Visual Studio
 .vs/
 .vscode/
+CppProperties.json
 *.user
 *.suo
 *.db
@@ -155,5 +156,8 @@ build.ninja
 !*.vcxproj.filters
 !*.rc
 !resource.h
+!vcpkg.json
+
 test_results.json
 /tmp/
+

@@ -32,6 +32,12 @@ struct PluginConfig {
     COLORREF TAG_AMBER = RGB(255, 170, 0);
     COLORREF TAG_GREY = RGB(150, 150, 150);
 
+	// Results view
+    std::string console_results_view = "summary";
+
+    // Non-fatal config warnings collected during load/defaulting
+    std::vector<std::string> config_warnings;
+
 };
 
 bool InitialiseConfig(const std::string& filepath, PluginConfig& plugin_config);

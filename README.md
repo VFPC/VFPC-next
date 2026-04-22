@@ -1,104 +1,168 @@
-# UK VFPC
+# VFPC
 
-UK VFPC (UK VATSIM Flight Plan Checker) is a plugin for EuroScope that checks filed IFR flight plans against pre-defined departure restrictions. It displays the results of such checks in a user-friendly format, with the option to output detailed results.
+VFPC is a EuroScope plugin for UK VATSIM that checks filed IFR departure flight plans against the current VFPC restriction data and shows the result directly in the departure list.
 
-**N.B.** - This plugin does not negate or replace the need for Delivery controllers to thoroughly check each Flight Plan before issuing a clearance; nor will it provide a perfect solution to more serious issues (e.g. SID filed routes in completely the wrong direction).
+It is a controller aid, not a clearance engine. A clean result does not remove the need to read the flight plan sensibly, and stale sector files, stale navdata, or stale VFPC data can still produce bad outcomes.
+
+For developer and branch-structure notes, see [docs/vfpc-next-supplement.md](docs/vfpc-next-supplement.md).
 
 ## Community
-You can join the community Discord Server at: https://discord.gg/xucfd2K523
 
-## READ BEFORE USE
-This plugin only works with the latest sector files and navigation data. Please ensure that your EuroScope sector files are always up-to-date.
+VFPC community Discord:
 
-Additionally, please regularly update your navigation data (`EuroScope/DataFiles` and `EuroScope/UK/Data/DataFiles`) to the latest AIRAC, found in the `NavData` folder of the `EDGG EDGG_FULL` profile at: http://files.aero-nav.com/EDXX.
+`https://discord.gg/xucfd2K523`
 
-After updating your sector files or navigation data, please remember to restart EuroScope before using the plugin.
+## What The Plugin Checks
+
+VFPC is focused on departure-side validation. On this branch it can check:
+
+- whether the filed SID or non-SID departure route exists for the active airport
+- whether the destination matches the selected departure route
+- whether the exit point is valid
+- whether the filed route remains valid after route normalization and syntax checks
+- whether the requested level fits the permitted level band
+- whether the odd/even direction rule is satisfied
+- whether the SID suffix is valid
+- whether SID-level restrictions apply for aircraft type, time, or ban state
+- whether route-level warnings or bans are present
+- whether the route text contains obvious syntax problems
+
+## Read Before Use
+
+VFPC only makes sense when the underlying data is current.
+
+Before relying on it, make sure:
+
+- your UK sector files are current
+- your EuroScope navigation data is current
+- VFPC has current airport data from the live service, or you are deliberately loading a current local `Sid.json`
+
+After updating sector files or navigation data, restart EuroScope.
+
 ## Installation
-- Create a folder called VFPC within the plugins folder (%APPDATA%\Euroscope\UK\Data\Plugin).
-- Copy the downloaded DLL (vfpc.dll) to this folder.
 
-## Initial Setup
-- Load up the plugin
-- Add a new Tag Item to the Departure List (Click the `S` on the left of the list header.)
-    - Tag Item Type: `VFPC (UK)/VFPC`
-    - Mouse Button Function: `VFPC (UK)/Options`
-    - Recommended Header: `FPC`
-    - Recommended Item Width: `3`
-    - Align To Center : `Off` (Unticked)
-    - Colour: `Default Other Item`
-- Ensure that the new Tag Item is Enabled (In the `F` menu on the left of the Departure List header.)
+1. Create `%APPDATA%\EuroScope\UK\Data\Plugin\VFPC\` if it does not already exist.
+2. Copy `VFPC.dll` into that folder.
+3. Start EuroScope and load the plugin.
 
-## Features
-- `VFPC` tag item: Shows check-result and allows output of detailed checking data.
-- Tag function `Show Checks`: Outputs detailed checking data.
-- Tag function `Toggle Checks`: Enables/Disables checks for individual flight plans.
-- Checks validity of the filed initial route (to the extent specified by API - UK routes are as specified in the SRD).
-- Checks that the aircraft type is valid for the filed SID.
-- Checks that the filed initial route is valid to the given destination.
-- Checks that the filed altitude follows any odd/even restrictions.
-- Checks that the filed altitude is within the allocated altitude block for the filed route.
-- Checks that the assigned SID is valid for the aircraft type operating the flight.
-- Checks that the assigned SID is valid on the current day/time.
-- Checks that there are no obvious syntax errors within the flight plan. (Invalid step climbs, Random symbol characters, etc.)
-- Checks for any SRD warnings/bans regarding the specific route in use.
+On first run, VFPC creates `vfpc_config.json` in the same folder if it is missing.
 
-## Check Results
+## EuroScope Setup
 
-### Green - Success
-- `OK!` - All checks passed.
+Add a new departure-list tag item with:
 
-### Yellow - Warning
-- `OK!` - All checks passed but one or more warnings were generated. This generally occurs in cases where the SRD contains ambiguous notes, which can't be coded for automatic interpretation.
+- Tag Item Type: `VFPC (UK)/VFPC`
+- Mouse Button Function: `VFPC (UK)/Options`
+- Recommended Header: `FPC`
+- Recommended Item Width: `3`
+- Align To Center: `Off`
+- Colour: `Default Other Item`
 
-### Red - Fail
-- `SID` - Assigned SID is invalid for some reason. (Not Found, Bad Suffix, Mismatch with Route, etc.)
-- `ENG` - Engine type is invalid for this SID/route.
-- `DST` - Filed destination is invalid for this SID.
-- `RTE` - Filed route is invalid for some reason.
-- `LVL` - Filed altitude is outside of the allocated altitude block for this route.
-- `OER` - Filed altitude is in violation of the Odd/Even altitude requirement for this route.
-- `SUF` - Assigned SID suffix is banned for this route.
-- `RST` - Assigned SID (and suffix) is invalid for this aircraft type and/or for the current day and time.
-- `CHK` - Some kind of syntax error (Bad characters in route, Invalid step climb instruction, etc.)
-- `BAN` - Route has ban attached. This can be for one of 2 reasons
-    - Failed Restriction
-        - In cases where a destination restriction would cause the filed route to be ignored entirely (e.g. M145 filed by a non-Dublin inbound), a banned form of the route is provided, without the destination requirement. This allows the restriction to be displayed correctly. Alternative routes are also displayed.
-    - SRD-Imposed Ban
-        - Routes withdrawn until further notice
-        - CDR2 Routes - Plannable when NOTAMed out (may be used during events).
-        - CDR3 Routes - Not plannable. Available only with prior approval from the Area Control Supervisor (generally during events).
-        - **N.B.** CDR1 Routes (those plannable at specific times only) are not included in this category. Instead, their published time restrictions are included in the standard API data set and will be enforced automatically. However, many CDR1 routes are also CDR3 and may be utilised during events, when officially "inactive".
+Then enable that tag item in the departure list.
 
-## Chat Commands
-- `.vfpc` - Root command. Must be placed before any of the below commands in order for them to run.
-- `.vfpc load` - Attempts to reactivate automatic data loading if it has been disabled for some reason. (Server connection lost, loading data from file, etc.)
-- `.vfpc debug` - Activates debug logging into a separate message box, named "VFPC Log"
-- `.vfpc file`- Deactivates loading from the API, and conducts a one-time load from the `Sid.json` file instead. Can also be used to reload from `Sid.json` after making changes.
-- `.vfpc check` - Equivalent of clicking the "Show Checks" button for an aircraft. Ensure that the aircraft in question is highlighted in the departure list.
+The current popup menu provides:
 
-**N.B.** Disabling automatic data loading (or choosing to load from a file) will only last until the plugin is unloaded (including when EuroScope is closed). When the plugin is next loaded, it will always attempt to load from the API.
+- `Show Checks`
+- `Toggle Checks`
+
+`Show Checks` outputs the current validation result for the selected flight plan. `Toggle Checks` disables or re-enables VFPC for that specific flight plan.
+
+## Tag Results
+
+The tag is intentionally compact. It shows the most important current state for the flight plan.
+
+### Pass And Non-Fail States
+
+- `OK!` all checks passed
+- `WRN` checks passed, but warning-style data was raised
+- `VFR` the flight plan was not checked because it is not IFR
+- `PDG` validation is pending, usually because airport data is still loading
+- `OFF` checks were disabled for that flight plan, or the flight plan is outside the active airport lane for the session
+
+### Failure And Attention States
+
+- `SID` SID or departure-route problem
+- `DST` destination restriction failure
+- `XIT` exit-point restriction failure
+- `RTE` route restriction failure
+- `LVL` level-band failure
+- `DIR` odd/even direction failure
+- `SFX` SID suffix failure
+- `RST` SID-level restriction failure
+- `BAN` route ban present
+- `SYN` route syntax problem
+- `ERR` validation could not complete correctly
+
+For anything non-trivial, use `Show Checks` or `.vfpc check` and read the detailed output.
+
+## Console Output And Commands
+
+VFPC supports these chat commands on this branch:
+
+- `.vfpc load`
+  Re-enable API loading and request a fresh airport-data reload.
+
+- `.vfpc file`
+  Disable API loading and attempt a one-time load from local `Sid.json`.
+
+- `.vfpc check`
+  Output the current validation result for the selected flight plan.
+
+- `.vfpc full`
+  Set console output to the full per-field validation view.
+
+- `.vfpc summary`
+  Set console output to the shorter summary view.
+
+- `.vfpc config`
+  Show config-default warnings and the current console-results mode.
+
+## Data Loading
+
+VFPC normally loads airport and SID data from the configured live service.
+
+It can also load from a local `Sid.json` via `.vfpc file`. That file mode is temporary and is intended as an operator fallback, not the normal path.
+
+If loading or parsing fails, VFPC may stop automatically reloading until you correct the problem and run `.vfpc load`.
 
 ## Configuration File
-- Certain data required by the plugin is now held within a file `vfpc_config.json`.
-- The plugin will create this file the first time it is loaded after being downloaded.  Thereafter a default will be created if it cannot be located within the same folder
-as the plugin.
-- Currently this file specifies the Data Server URL used by the plugin, and the RGB values for the RED, GREEN and YELLOW colours as used by the results of checks (see above).
-- The Data Server URL should not be amended by the user, unless instructed to do so by a member of the VFPC team, as this is likely to cause the plugin to be disabled.
-- The format of the JSON file must be maintained if amended by the user to avoid unexpected behaviour.
-- The configuration file default values are as follows;
-  
+
+VFPC stores runtime settings in `vfpc_config.json`.
+
+The current top-level settings are:
+
+- `spdlog`
+- `curl`
+- `colours`
+- `console_results_view`
+
+The default service settings are:
+
 | Key | Value |
 | --- | --- |
-| `base_url` | https://vfpcplugin.org |
-| `red` | R = 190 G = 0 B = 0 |
-| `green` | R = 0 G = 190 B = 0 |
-| `yellow` | R = 255 G = 165 B = 0 |
+| `base_url` | `https://vfpcplugin.org/` |
+| `airport_endpoint` | `airport?icao=` |
+| `version_endpoint` | `version` |
 
+The service URL should not be changed unless you have been told to do so by the VFPC team.
+
+## Operational Notes
+
+- VFPC is an aid, not a substitute for controller judgement.
+- `WRN` means the route may still be acceptable, but you should read the detail.
+- `SYN` means the route text itself needs attention even if later checks still ran.
+- `VFR` and `OFF` are not hard failures; they mean the normal IFR validation path was not applied.
 
 ## Disclaimer
-The plugin is currently in active development and you may encounter **unforseen bugs or other issues**. Please report them - we'll fix them as soon as we can. You run this plugin at your own risk - the developers are all volunteers and accept no liability for any problems encountered or damage to your system.
+
+VFPC is still software. If the data is stale, the config is wrong, or the live feed is unavailable, results may be wrong or incomplete.
+
+Use it as a controller aid and keep using your own judgement.
 
 ## Acknowledgements
-This plugin was originally created by **@DrFreas** and significantly expanded by **@hpeter2** and **@svengcz**. **@lennycolton** took over development in January 2021 and has rewritten almost all of the plugin's code. However, a few elements of the original code base (most notably, part of the UI) are still in use.
 
-The API was built from scratch by **@GeekPro101**, specifically for use with v3 of UK VFPC. The SRD Parser was written by **@lennycolton** and is used to provide regular AIRAC updates to the API. Both projects are closed source.
+This plugin was originally created by **@DrFreas** and significantly expanded by **@hpeter2** and **@svengcz**. **@lennycolton** took over development in January 2021,re-writing almost all of the plugin's original code. In 2025 **@Peter** took over development of the plugin resulting in a major change to the architecture and significant re-write of the code.  This will become v4 of the UK vFPC.
+
+VFPC has had multiple contributors over time, including Peter Richardson, Jan Fries, Lenny Colton, Hendrik Peter, Sven Czarnian, and DrFreas.
+
+The wider VFPC ecosystem has also included supporting work on the data/API side and parser side.

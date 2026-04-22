@@ -14,8 +14,7 @@
 
 #define NOMINMAX
 
-#define SPDLOG_USE_STD_FORMAT			//  Tells the spdlog library to use C++20’s std::format for formatting log messages.
-//#define SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE // Set the global log level to TRACE
+#define SPDLOG_USE_STD_FORMAT				   // Tells the spdlog library to use C++20’s std::format for formatting log messages.
 
 // --- Windows ---
 #include <windows.h>
