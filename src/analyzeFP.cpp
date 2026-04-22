@@ -9,8 +9,6 @@
 #include "Log.h"
 #include "UrlData.h"
 #include "VersionInfo.h"
-#include "ConstraintChecks.hpp"
-#include "SidApplicability.hpp"
 #include "TimeWindow.h"
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
@@ -1347,7 +1345,18 @@ std::vector<bool> CVFPCPlugin::checkDestination(const rapidjson::Value& conditio
 		bool res = true;
 
 		const auto& cond = conditions[i];
-		res = checkOneDestination(cond, destination);
+		const auto* nodestsArr = FindArrayMember(cond, "nodests");
+		if (nodestsArr && !nodestsArr->Empty()) {
+			if (destArrayContains(*nodestsArr, destination.c_str()).size()) {
+				res = false;
+			}
+		}
+		const auto* destsArr = FindArrayMember(cond, "dests");
+		if (destsArr && !destsArr->Empty()) {
+			if (!destArrayContains(*destsArr, destination.c_str()).size()) {
+				res = false;
+			}
+		}
 		out.push_back(res);
 	}
 	return out;
@@ -1395,7 +1404,6 @@ std::vector<bool> CVFPCPlugin::checkExitPoint(const rapidjson::Value& conditions
 				res = false;
 			}
 		}
-
 		out.push_back(res);
 	}
 	return out;
@@ -1421,7 +1429,6 @@ std::vector<bool> CVFPCPlugin::checkRoute(const rapidjson::Value& sid_constraint
 			out.push_back(false);
 			continue;
 		}
-
 
 		const auto* route_array = FindArrayMember(constraint, "route");
 		if (route_array && !route_array->Empty()) {
@@ -1456,13 +1463,29 @@ std::vector<bool> CVFPCPlugin::checkMinMax(const rapidjson::Value& conditions,
 
 		bool res = true;
 
+		int Min, Max;
+
 		const auto& condition = conditions[i];
 		if (!condition.IsObject()) {
 			out.push_back(false);
 			continue;
 		}
 
-		res = checkOneMinMax(condition, RFL);
+		const auto* minObj = FindMemberValue(condition, "min");
+		if (minObj && minObj->IsInt()) {
+			if ((Min = minObj->GetInt()) > 0 && (RFL / 100) < Min) {
+				res = false;
+
+			}
+		}
+
+		//Max Level
+		const auto* maxObj = FindMemberValue(condition, "max");
+		if (maxObj && maxObj->IsInt()) {
+			if ((Max = maxObj->GetInt()) > 0 && (RFL / 100) > Max) {
+				res = false;
+			}
+		}
 		out.push_back(res);
 	}
 	return out;
@@ -1485,11 +1508,6 @@ std::vector<bool> CVFPCPlugin::checkDirection(const rapidjson::Value& conditions
 		bool res = true;
 
 		const auto& condition = conditions[i];
-		if (!condition.IsObject()) {
-			out.push_back(false);
-			continue;
-		}
-
 		const auto* dirObj = FindMemberValue(condition, "dir");
 		if (!dirObj || !dirObj->IsString()) {
 			out.push_back(res);
@@ -1499,7 +1517,33 @@ std::vector<bool> CVFPCPlugin::checkDirection(const rapidjson::Value& conditions
 		string direction = dirObj->GetString();
 		direction = to_upper(direction);
 		LOG_TRACE("Direction Check: RFL={} dir='{}'", RFL, direction);
-		res = checkOneDirection(condition, RFL);
+		if (direction == EVEN_DIRECTION) {
+			//Assume invalid until condition matched
+			res = false;
+			//Non-RVSM (Above FL410)
+			if ((RFL > RVSM_UPPER && ((RFL - RVSM_UPPER) / 1000) % 4
+				== 2)) {
+
+				res = true;
+			}
+			//RVSM (FL290-410) or Below FL290
+			else if (RFL <= RVSM_UPPER && (RFL / 1000) % 2 == 0) {
+				res = true;
+			}
+		}
+		else if (direction == ODD_DIRECTION) {
+			//Assume invalid until condition matched
+			res = false;
+			//Non-RVSM (Above FL410)
+			if ((RFL > RVSM_UPPER && ((RFL - RVSM_UPPER) / 1000) % 4
+				== 0)) {
+				res = true;
+			}
+			//RVSM (FL290-410) or Below FL290
+			else if (RFL <= RVSM_UPPER && (RFL / 1000) % 2 == 1) {
+				res = true;
+			}
+		}
 		LOG_TRACE("Direction Check: Completed with {} result", res ? "PASSED" : "FAILED");
 		out.push_back(res);
 	}
@@ -1535,7 +1579,24 @@ std::vector<bool> CVFPCPlugin::checkAlerts(const rapidjson::Value& constraint,
 			continue;
 		}
 
-		res = checkOneAlerts(condition, *warn);
+		for (rapidjson::SizeType j = 0; j < alerts->Size(); ++j) {
+			const auto& alert = (*alerts)[j];
+			if (!alert.IsObject()) {
+				continue;
+			}
+
+			if (const auto* ban = FindMemberValue(alert, "ban");
+				ban && ban->IsBool() && ban->GetBool()) {
+				res = false;
+			}
+
+			if (const auto* warnValue = FindMemberValue(alert,
+				"warn");
+				warnValue && warnValue->IsBool() && warnValue->GetBool
+				()) {
+				*warn = true;
+			}
+		}
 
 		out.push_back(res);
 	}
