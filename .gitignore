@@ -13,6 +13,12 @@ dockercompose/config/acme.json
 ############################
 backup/
 vfpc_*/
+# Re-include the test harness and CLI checker projects (vfpc_*/ catches these
+# directories on Windows due to case-insensitive path matching).
+!VFPC_Tests/
+!VFPC_Tests/**
+!VFPC_Check/
+!VFPC_Check/**
 *.tar.gz
 *.tgz
 *.zip
@@ -38,9 +44,12 @@ log/
 
 # JetBrains
 .idea/
+.fleet/
 *.iml
 *.iws
 *.ipr
+*.DotSettings.user
+*.sln.DotSettings.user
 
 # Visual Studio
 .vs/
@@ -140,11 +149,6 @@ build.ninja
 .ninja_log
 
 ############################
-# Project-specific exclusions
-############################
-lib/include/
-
-############################
 # Keep important project files
 ############################
 !*.sln
@@ -153,3 +157,7 @@ lib/include/
 !*.rc
 !resource.h
 !vcpkg.json
+
+test_results.json
+/tmp/
+
