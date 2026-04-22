@@ -313,7 +313,7 @@ CVFPCPlugin::CVFPCPlugin(void) :CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 	// Start async version check (non-blocking)
 	StartVersionCheckAsync();
 
-	SendToConsole(vfpc::urgent, "Plugin Version: {} Loaded. {}", VFPC_VERSION_STR, PLUGIN_WELCOME_MESSAGE);
+	SendToConsole(vfpc::urgent, "Plugin Version: {} Loaded. {}", VFPC_DISPLAY_VERSION, PLUGIN_WELCOME_MESSAGE);
 
 	is_initialised = true;
 	return;
