@@ -15,8 +15,9 @@ using namespace std;
 const int TAG_ITEM_CHECKFP = 1;
 
 const int TAG_FUNC_CHECKFP_MENU = 100;
-const int TAG_FUNC_CHECKFP_CHECK = 101;
-const int TAG_FUNC_CHECKFP_DISMISS = 102;
+const int TAG_FUNC_CHECKFP_CHECK_FULL = 101;
+const int TAG_FUNC_CHECKFP_CHECK_SUMMARY = 102;
+const int TAG_FUNC_CHECKFP_DISMISS = 103;
 
 const size_t API_REFRESH_TIME = 10;
 
@@ -32,6 +33,8 @@ const string LOAD_COMMAND = "load";
 const string FILE_COMMAND = "file";
 const string LOG_COMMAND = "log";
 const string CHECK_COMMAND = "check";
+const string TRACE_COMMAND = "trace";
+const string INFO_COMMAND = "info";
 
 const string DCT_ENTRY = "DCT";
 const string SPDLVL_SEP = "/";

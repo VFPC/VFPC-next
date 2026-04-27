@@ -7,7 +7,6 @@
 struct PluginConfig {
     // spdlog
     std::string log_path;
-    std::string log_file;
     int max_files;
     int flush_interval_sec;
     std::string pattern;

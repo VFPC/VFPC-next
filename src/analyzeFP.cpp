@@ -1634,16 +1634,16 @@ bool CVFPCPlugin::RestrictionSelectorsMatch_(const FlightPlanRow& row,
 		}
 	}
 
-	// ----------------------------------------------------------
-	// time window
-	// ----------------------------------------------------------
-	const auto* startObj = FindMemberValue(restriction, "start");
-	const auto* endObj = FindMemberValue(restriction, "end");
-	if (startObj && endObj && startObj->IsObject() && endObj->IsObject()) {
-		if (!checkTimeWindow(row.eobt, restriction)) {
-			return false;
-		}
-	}
+	//// ----------------------------------------------------------
+	//// time window
+	//// ----------------------------------------------------------
+	//const auto* startObj = FindMemberValue(restriction, "start");
+	//const auto* endObj = FindMemberValue(restriction, "end");
+	//if (startObj && endObj && startObj->IsObject() && endObj->IsObject()) {
+	//	if (!checkTimeWindow(row.eobt, restriction)) {
+	//		return false;
+	//	}
+	//}
 
 	return true;
 }
@@ -1695,6 +1695,21 @@ bool CVFPCPlugin::RestrictionObjectMatches_(const FlightPlanRow& row,
 		fails.banned = fails.banned || local.banned;
 
 		return false;
+	}
+
+	// ----------------------------------------------------------
+	// time window: applicable restriction must pass time
+	// ----------------------------------------------------------
+	const auto* startObj = FindMemberValue(restriction, "start");
+	const auto* endObj = FindMemberValue(restriction, "end");
+
+	if (startObj && endObj && startObj->IsObject() && endObj->IsObject()) {
+		if (!checkTimeWindow(row.eobt, restriction)) {
+			local.time = true;
+
+			fails.time = true;
+			return false;
+		}
 	}
 
 	// ----------------------------------------------------------
@@ -2503,7 +2518,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 			SetField_(validationResult, VF_SUFFIX, "Invalid Suffix.", text);
 		}
 		else {
-			SetField_(validationResult, VF_SUFFIX, "Valid Suffix.",
+			SetField_(validationResult, VF_SUFFIX, "Passed",
 				"Valid " + SuffixOutput(*matched_sid));
 
 			const std::string text =
@@ -3183,6 +3198,15 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 		auto it = tracked_flightplans_.find(row.callsign);
 		if (it == tracked_flightplans_.end())
 		{
+			LOG_INFO("Flight plan first seen: callsign='{}' origin='{}' dest='{}' eobt='{}' sid='{}' route='{}' rfl={}",
+				row.callsign,
+				row.origin,
+				row.destination,
+				row.eobt,
+				row.sid,
+				row.route,
+				row.rfl);
+
 			TrackedFlightPlan tracked;
 			tracked.fingerprint = fingerprint;
 			tracked.last_seen = now;
@@ -3197,8 +3221,14 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 			const bool changed = (it->second.fingerprint != fingerprint);
 			if (changed)
 			{
-				LOG_TRACE("Flight plan for callsign '{}' changed. Updating fingerprint and data.",
-					row.callsign);
+				LOG_INFO("Flight plan first seen: callsign='{}' origin='{}' dest='{}' eobt='{}' sid='{}' route='{}' rfl={}",
+					row.callsign,
+					row.origin,
+					row.destination,
+					row.eobt,
+					row.sid,
+					row.route,
+					row.rfl);
 
 				it->second.fingerprint = fingerprint;
 				it->second.last_row = row;
@@ -4544,11 +4574,15 @@ void CVFPCPlugin::OnFunctionCall(int FunctionId, const char*
 	try {
 		if (FunctionId == TAG_FUNC_CHECKFP_MENU) {
 			OpenPopupList(Area, "Options", 1);
-			AddPopupListElement("Show Checks", "", TAG_FUNC_CHECKFP_CHECK);
+			AddPopupListElement("Show Checks (FULL)", "", TAG_FUNC_CHECKFP_CHECK_FULL);
+			AddPopupListElement("Show Checks (SUMMARY)", "", TAG_FUNC_CHECKFP_CHECK_SUMMARY);
 			AddPopupListElement("Toggle Checks", "", TAG_FUNC_CHECKFP_DISMISS);
 		}
-		else if (FunctionId == TAG_FUNC_CHECKFP_CHECK) {
-			checkFPDetail();
+		else if (FunctionId == TAG_FUNC_CHECKFP_CHECK_FULL) {
+			checkFPDetail(ResultsView::Full);
+		}
+		else if (FunctionId == TAG_FUNC_CHECKFP_CHECK_SUMMARY) {
+			checkFPDetail(ResultsView::Summary);
 		}
 		else if (FunctionId == TAG_FUNC_CHECKFP_DISMISS) {
 			EuroScopePlugIn::CFlightPlan flightPlan = FlightPlanSelectASEL();
@@ -4762,7 +4796,34 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 			return true;
 		}
 		else if (startsWith((COMMAND_PREFIX + CHECK_COMMAND).c_str(), sCommandLine)) {
-			checkFPDetail();
+			checkFPDetail(ResultsView::Full);
+			return true;
+		}
+		else if (startsWith((COMMAND_PREFIX + TRACE_COMMAND).c_str(), sCommandLine)) {
+			auto lg = spdlog::default_logger();
+
+			if (!lg) {
+				SendToConsole("VFPC logger not initialised");
+				return true;
+			}
+			lg->set_level(spdlog::level::trace);
+			spdlog::set_level(spdlog::level::trace);
+
+			SendToConsole("VFPC logging set to TRACE");
+			LOG_INFO("Runtime log level changed to TRACE");
+		}
+		else if (startsWith((COMMAND_PREFIX + INFO_COMMAND).c_str(), sCommandLine)) {
+			auto lg = spdlog::default_logger();
+
+			if (!lg) {
+				SendToConsole("VFPC logger not initialised");
+				return true;
+			}
+			lg->set_level(spdlog::level::info);
+			spdlog::set_level(spdlog::level::info);   // also sets global level
+
+			SendToConsole("VFPC logging set to INFO");
+			LOG_INFO("Runtime log level changed to INFO");
 			return true;
 		}
 	}
@@ -4778,7 +4839,7 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 	return false;
 }
 
-void CVFPCPlugin::checkFPDetail()
+void CVFPCPlugin::checkFPDetail(ResultsView view)
 {
 	try {
 		if (!validVersion.load(std::memory_order_acquire)) {
@@ -4801,7 +4862,7 @@ void CVFPCPlugin::checkFPDetail()
 				result = it->second.last_result;
 			}
 		}
-		OutputValidationResultToConsole_(result, console_results_view_);
+		OutputValidationResultToConsole_(result, view);
 	}
 	catch (const std::exception& ex) {
 		LOG_ERROR("checkFPDetail error: {}", ex.what());

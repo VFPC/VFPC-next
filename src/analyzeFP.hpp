@@ -156,7 +156,7 @@ public:
 	virtual std::vector<bool> checkMinMax(const rapidjson::Value& constraints, int RFL, std::vector<bool>& in)const;
 	virtual std::vector<bool> checkDirection(const rapidjson::Value& constraints, int RFL, std::vector<bool>& in)const;
 	virtual std::vector<bool> checkAlerts(const rapidjson::Value& constraints, bool* warn, std::vector<bool>& in)const;
-	virtual void checkFPDetail();
+	virtual void checkFPDetail(ResultsView view);
 	//==============================================================
 	// 8. Validation output formatting
 	//==============================================================

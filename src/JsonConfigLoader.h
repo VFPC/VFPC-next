@@ -73,17 +73,16 @@ public:
         // --- spdlog section ---
         if (!validate_section("spdlog", {
                 {"log_directory", FieldType::String,  true, "uk/data/plugin/vfpc/log" },
-                {"log_filename",  FieldType::String,  true, "vfpc2_log.txt" },
                 {"max_files",     FieldType::Integer, true, "5"},
                 {"flush_interval_sec", FieldType::Integer, true, "1"},
-                {"pattern",       FieldType::String,  true, "[%Y-%m-%d %H:%M:%S] [%l] %v"},
+                {"pattern",       FieldType::String,  true, "[%Y-%m-%dT%H:%M:%SZ] [%l] %v"},
                 {"level",         FieldType::String,  true, "info"},
                 {"flush_level",   FieldType::String,  true, "info"},
                 {"truncate",      FieldType::Boolean, true, "false"}
             })) return false;
 
         warn_unknown_keys_(config_doc_["spdlog"],
-            { "log_directory", "log_filename", "max_files", "flush_interval_sec",
+            { "log_directory", "max_files", "flush_interval_sec",
               "pattern", "level", "flush_level", "truncate" },
             "section 'spdlog'");
 
@@ -246,7 +245,6 @@ public:
         rapidjson::Value spdlog(rapidjson::kObjectType);
 
         spdlog.AddMember("log_directory", "uk/data/plugin/vfpc/log", alloc);
-        spdlog.AddMember("log_filename", "vfpc2_log.txt", alloc);
         spdlog.AddMember("max_files", 5, alloc);
         spdlog.AddMember("flush_interval_sec", 1, alloc);
         spdlog.AddMember("pattern", "[%Y-%m-%d %H:%M:%S] [%l] %v", alloc);
@@ -347,10 +345,6 @@ public:
     //--------------------------------
     std::string LogDirectory() const {
         return get_string_("spdlog", "log_directory");
-	}
-
-    std::string LogFilename() const {
-        return get_string_("spdlog", "log_filename");
 	}
 
     int MaxFiles() const {

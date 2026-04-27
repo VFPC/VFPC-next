@@ -13,7 +13,6 @@ bool InitialiseConfig(const std::string& filepath, PluginConfig& plugin_config) 
 
 	// --- Set up spdlog configuration ---
 	plugin_config.log_path = config.LogDirectory();
-	plugin_config.log_file = config.LogFilename();
 	plugin_config.max_files = config.MaxFiles();
 	plugin_config.flush_interval_sec = config.FlushIntervalSec();
 	plugin_config.pattern = config.Pattern();

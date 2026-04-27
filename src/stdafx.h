@@ -1,14 +1,13 @@
 #ifndef STDAFX_H	
 #define STDAFX_H
 
-// stdafx.h: Includedatei für Include-Standardsystemdateien
-// oder häufig verwendete projektspezifische Includedateien,
-// die nur in unregelmäßigen Abständen geändert werden.
-//
-
 #pragma once
 
 #include "targetver.h"
+
+#if !defined(_MSVC_LANG) || _MSVC_LANG < 202002L
+#error VFPC requires C++20 or later.
+#endif
 
 #define WIN32_LEAN_AND_MEAN
 
