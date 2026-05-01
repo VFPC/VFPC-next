@@ -13,7 +13,7 @@
 #define VFPC_VERSION_BUILD 1
 
 // Optional prerelease label
-#define VFPC_VERSION_PRERELEASE "beta1"
+#define VFPC_VERSION_PRERELEASE "beta2"
 
 // Comma-separated numeric form required by FILEVERSION / PRODUCTVERSION
 #define VFPC_VERSION_NUM  VFPC_VERSION_MAJOR, VFPC_VERSION_MINOR, VFPC_VERSION_PATCH, VFPC_VERSION_BUILD

@@ -247,7 +247,7 @@ public:
         spdlog.AddMember("log_directory", "uk/data/plugin/vfpc/log", alloc);
         spdlog.AddMember("max_files", 5, alloc);
         spdlog.AddMember("flush_interval_sec", 1, alloc);
-        spdlog.AddMember("pattern", "[%Y-%m-%d %H:%M:%S] [%l] %v", alloc);
+        spdlog.AddMember("pattern", "[%Y-%m-%d %H:%M:%SZ] [%l] %v", alloc);
         spdlog.AddMember("level", "info", alloc);
         spdlog.AddMember("flush_level", "info", alloc);
         spdlog.AddMember("truncate", false, alloc);
