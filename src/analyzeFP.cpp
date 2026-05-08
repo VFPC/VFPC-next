@@ -24,6 +24,9 @@ namespace
 	bool apiUpdated = false;
 	bool is_initialised = false;
 
+	std::mutex checks_disabled_mtx_;
+	std::unordered_set<std::string> checks_disabled_callsigns_;
+
 	int relCount = 0;
 
 	PluginConfig plugin_config_;
@@ -263,7 +266,7 @@ CVFPCPlugin::CVFPCPlugin(void) :CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 	// Start async version check (non-blocking)
 	StartVersionCheckAsync();
 
-	SendToConsole(vfpc::urgent, "Plugin Version: {} Loaded. {}", VFPC_DISPLAY_VERSION, PLUGIN_WELCOME_MESSAGE);
+	SendToConsole("Plugin Version: {} Loaded. {}", VFPC_DISPLAY_VERSION, PLUGIN_WELCOME_MESSAGE);
 
 	is_initialised = true;
 	return;
@@ -353,7 +356,7 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 		};
 
 	if (view == ResultsView::Full) {
-		SendToConsole(vfpc::urgent, "{} {}", text(VF_CALLSIGN), result.itemString);
+		SendToConsole("{} {}", text(VF_CALLSIGN), result.itemString);
 		SendToConsole("SID: {}", text(VF_SID));
 		SendToConsole("Destination: {}", text(VF_DESTINATION));
 		SendToConsole("Exit Point: {}", text(VF_EXIT_POINT));
@@ -365,7 +368,7 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 		SendToConsole("Warnings: {}", text(VF_WARNINGS));
 		SendToConsole("Bans: {}", text(VF_BANS));
 		SendToConsole("Syntax: {}", text(VF_SYNTAX));
-		SendToConsole(vfpc::urgent, "Status: {}", text(VF_STATUS));
+		SendToConsole("Status: {}", text(VF_STATUS));
 		return;
 	}
 
@@ -374,7 +377,7 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 		? result.fields[VF_CALLSIGN].summary
 		: "UNKNOWN";
 
-	SendToConsole(vfpc::urgent, "{} {}", callsign, result.itemString);
+	SendToConsole("{} {}", callsign, result.itemString);
 
 	switch (result.status) {
 	case ValidationStatus::Passed:
@@ -410,7 +413,7 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 			}
 		}
 
-		SendToConsole("FAIL: Validation error");
+		SendToConsole(vfpc::urgent,"FAIL: Validation error");
 		break;
 	}
 
@@ -425,7 +428,7 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 		break;
 
 	default:
-		SendToConsole("Validation error");
+		SendToConsole(vfpc::urgent, "Validation error");
 		break;
 	}
 }
@@ -633,7 +636,7 @@ bool CVFPCPlugin::APICall(const std::string& base_url,
 
 	if (!webCall(url, buf, st))
 	{
-		SendToConsole("An error occurred whilst downloading data.The plugin has been disabled.");
+		SendToConsole(vfpc::urgent, "An error occurred whilst downloading data.The plugin has been disabled.");
 		SendToConsole(vfpc::urgent, "Please restart EuroScope to try again. (Note:.vfpc load will NOT work.");
 
 		LOG_ERROR("API Call to{} : Failed - No Data Returned", url);
@@ -683,8 +686,8 @@ bool CVFPCPlugin::fileCall(rapidjson::Document& out)
 		ss << ifs.rdbuf();
 		ifs.close();
 		if (out.Parse<0>(ss.str().c_str()).HasParseError()) {
-			SendToConsole("An error occurred whilst parsing data. The plugin will not automatically attempt to reload.");
-			SendToConsole("To restart data fetching from the API, type '{}{}'", COMMAND_PREFIX, LOAD_COMMAND);
+			SendToConsole(vfpc::urgent, "An error occurred whilst parsing data. The plugin will not automatically attempt to reload.");
+			SendToConsole(vfpc::urgent, "To restart data fetching from the API, type '{}{}'", COMMAND_PREFIX, LOAD_COMMAND);
 			SendToConsole(vfpc::urgent, "To load data from sid.json, type '{}{}'", COMMAND_PREFIX, FILE_COMMAND);
 
 			LOG_DEBUG("Config Parse: {} (Offset: {})\n'", rapidjson::GetParseError_En(out.GetParseError()),
@@ -697,7 +700,8 @@ bool CVFPCPlugin::fileCall(rapidjson::Document& out)
 		}
 	}
 	else {
-		SendToConsole(vfpc::urgent, "To restart data fetching from the API, type '{}{}'", COMMAND_PREFIX, LOAD_COMMAND);
+		SendToConsole(vfpc::urgent, "File {} not found. To restart data fetching from the API, type '{}{}'", 
+			path, COMMAND_PREFIX, LOAD_COMMAND);
 
 		LOG_WARN("File not found {}", DATA_FILE);
 
@@ -737,7 +741,8 @@ std::string CVFPCPlugin::BuildShortRouteExample_(const rapidjson::Value& cond) c
 std::vector<std::string> CVFPCPlugin::CollectRouteExamples_(
 	const rapidjson::Value& constraints,
 	const std::string& destination,
-	int rfl) const
+	int rfl,
+	const std::vector<std::string>& route_points) const
 {
 	std::vector<std::string> examples;
 
@@ -745,50 +750,68 @@ std::vector<std::string> CVFPCPlugin::CollectRouteExamples_(
 		return examples;
 	}
 
-	examples.reserve(constraints.Size());
-
-	// First pass: examples matching destination and level.
-	for (rapidjson::SizeType i = 0; i < constraints.Size(); ++i) {
-		const auto& cond = constraints[i];
-		if (!cond.IsObject()) {
-			continue;
+	auto routeContainsPoint = [&](const rapidjson::Value& cond) {
+		const auto* points = FindArrayMember(cond, "points");
+		if (!points || points->Empty()) {
+			return false;
 		}
 
-		if (!ConstraintAllowsDestination_(cond, destination)) {
-			continue;
+		for (const auto& p : points->GetArray()) {
+			if (!p.IsString()) continue;
+
+			if (std::find(route_points.begin(), route_points.end(),
+				std::string(p.GetString())) != route_points.end()) {
+				return true;
+			}
 		}
 
-		if (!ConstraintAllowsLevel_(cond, rfl)) {
-			continue;
-		}
+		return false;
+		};
 
-		std::string example = BuildShortRouteExample_(cond);
-		if (example.empty()) {
-			continue;
-		}
-
-		if (std::find(examples.begin(), examples.end(), example) == examples.end()) {
-			examples.push_back(std::move(example));
-		}
-	}
-
-	// Fallback: if nothing matched destination+level, show any route examples.
-	if (examples.empty()) {
+	auto addMatchingExamples = [&](auto predicate) {
 		for (rapidjson::SizeType i = 0; i < constraints.Size(); ++i) {
 			const auto& cond = constraints[i];
-			if (!cond.IsObject()) {
-				continue;
-			}
+
+			if (!cond.IsObject()) continue;
+			if (!predicate(cond)) continue;
 
 			std::string example = BuildShortRouteExample_(cond);
-			if (example.empty()) {
-				continue;
-			}
+			if (example.empty()) continue;
 
 			if (std::find(examples.begin(), examples.end(), example) == examples.end()) {
 				examples.push_back(std::move(example));
 			}
 		}
+		};
+
+	// Best: matching destination + level + filed exit/point.
+	addMatchingExamples([&](const rapidjson::Value& cond) {
+		return ConstraintAllowsDestination_(cond, destination)
+			&& ConstraintAllowsLevel_(cond, rfl)
+			&& routeContainsPoint(cond);
+		});
+
+	// Next best: matching route point + level.
+	if (examples.empty()) {
+		addMatchingExamples([&](const rapidjson::Value& cond) {
+			return ConstraintAllowsLevel_(cond, rfl)
+				&& routeContainsPoint(cond);
+			});
+	}
+
+	// Existing behaviour: destination + level.
+	if (examples.empty()) {
+		addMatchingExamples([&](const rapidjson::Value& cond) {
+			return ConstraintAllowsDestination_(cond, destination)
+				&& ConstraintAllowsLevel_(cond, rfl);
+			});
+	}
+
+	// Final fallback.
+	if (examples.empty()) {
+		addMatchingExamples([&](const rapidjson::Value&) {
+			return true;
+			});
 	}
 
 	return examples;
@@ -906,7 +929,7 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 			LOG_INFO("Version Call: Outdated Version In Use");
 			if (curchange) {
 
-				SendToConsole("Update available - you may continue using the plugin, but please update as soon as possible.");
+				SendToConsole(vfpc::urgent,"Update available - you may continue using the plugin, but please update as soon as possible.");
 			}
 			out = true;
 		}
@@ -1074,9 +1097,10 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 std::string CVFPCPlugin::RouteOutputShort_(const rapidjson::Value& constraints,
 	const std::string& destination,
 	int rfl,
+	const std::vector<std::string>& route_points,
 	std::size_t max_examples) const
 {
-	const auto examples = CollectRouteExamples_(constraints, destination, rfl);
+	const auto examples = CollectRouteExamples_(constraints, destination, rfl, route_points);
 
 	if (examples.empty()) {
 		return "No permitted route match.";
@@ -1105,9 +1129,10 @@ std::string CVFPCPlugin::RouteOutputShort_(const rapidjson::Value& constraints,
 std::string CVFPCPlugin::RouteOutputFailureDetail_(const rapidjson::Value& constraints,
 	const std::string& destination,
 	int rfl,
+	const std::vector<std::string>& route_points,
 	std::size_t max_examples) const
 {
-	const auto examples = CollectRouteExamples_(constraints, destination, rfl);
+	const auto examples = CollectRouteExamples_(constraints, destination, rfl, route_points);
 
 	if (examples.empty()) {
 		return "Valid Initial Routes: None.";
@@ -2357,7 +2382,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 			sid_level_time_advisory =
 				sid_restriction_result.passed &&
 				sid_restriction_result.any_applicable &&
-				SidRestrictionsContainTimeWindow_(*sidLvlRestrictions);
+				MatchingSidRestrictionHasTimeWindow_(row, *sidLvlRestrictions);
 
 			LOG_TRACE("SID-Level Restrictions: has_restrictions={} any_applicable={} passed={} fails: suffix={} type={} time={} banned={}",
 				sid_restriction_result.has_restrictions,
@@ -2589,13 +2614,13 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 			if (round == 3 && syntax_ok) {
 				const std::string text =
 					"Failed Route. " +
-					RouteOutputShort_(*constraints, row.destination, row.rfl, 2);
+					RouteOutputShort_(*constraints, row.destination, row.rfl, row.route_points, 2);
 
 				SetField_(validationResult, VF_ROUTE, "Failed Route.", text);
 
 				LOG_TRACE("Route failure detail for '{}': {}",
 					row.callsign,
-					RouteOutputFailureDetail_(*constraints, row.destination, row.rfl));
+					RouteOutputFailureDetail_(*constraints, row.destination, row.rfl, row.route_points));
 			}
 
 			SetField_(validationResult, VF_RESTRICTIONS,
@@ -3457,8 +3482,15 @@ void CVFPCPlugin::PruneTrackedFlightPlans_()
 
 void CVFPCPlugin::ResetTrackedFlightPlans_()
 {
-	std::lock_guard<std::mutex> g(tracked_flightplans_mtx_);
-	tracked_flightplans_.clear();
+	{
+		std::lock_guard<std::mutex> g(tracked_flightplans_mtx_);
+		tracked_flightplans_.clear();
+	}
+
+	{
+		std::lock_guard<std::mutex> g(checks_disabled_mtx_);
+		checks_disabled_callsigns_.clear();
+	}
 }
 
 bool CVFPCPlugin::CanValidateFlightPlans_() const
@@ -3723,7 +3755,8 @@ bool CVFPCPlugin::SidLevelRestrictionRouteMatches_(
 	return false;
 }
 
-bool CVFPCPlugin::SidRestrictionsContainTimeWindow_(
+bool CVFPCPlugin::MatchingSidRestrictionHasTimeWindow_(
+	const FlightPlanRow& row,
 	const rapidjson::Value& restrictions) const
 {
 	if (!restrictions.IsArray()) {
@@ -3735,14 +3768,18 @@ bool CVFPCPlugin::SidRestrictionsContainTimeWindow_(
 			continue;
 		}
 
+		RestrictionFailureFlags fails{};
+
+		if (!RestrictionObjectMatches_(row, restriction, fails)) {
+			continue;
+		}
+
 		const auto* startObj = FindMemberValue(restriction, "start");
 		const auto* endObj = FindMemberValue(restriction, "end");
 
-		if (startObj && endObj &&
+		return startObj && endObj &&
 			startObj->IsObject() &&
-			endObj->IsObject()) {
-			return true;
-		}
+			endObj->IsObject();
 	}
 
 	return false;
@@ -4888,17 +4925,30 @@ void CVFPCPlugin::OnFunctionCall(int FunctionId, const char*
 		}
 		else if (FunctionId == TAG_FUNC_CHECKFP_DISMISS) {
 			EuroScopePlugIn::CFlightPlan flightPlan = FlightPlanSelectASEL();
-			if (ChecksEnabledForFlightPlan(flightPlan)) {
-				flightPlan.GetControllerAssignedData().SetFlightStripAnnotation(0, "VFPC/OFF");
 
-				LOG_INFO("Validation checks disabled for flight plan: callsign='{}'",
-					flightPlan.GetCallsign());
+			if (!flightPlan.IsValid()) {
+				SendToConsole(vfpc::urgent, "No flight plan selected.");
+				LOG_ERROR("No valid flight plan selected for toggling checks");
+				return;
 			}
-			else {
-				flightPlan.GetControllerAssignedData().SetFlightStripAnnotation(0, "");
 
-				LOG_INFO("Validation checks enabled for flight plan: callsign='{}'",
-					flightPlan.GetCallsign());
+			const std::string callsign = flightPlan.GetCallsign();
+
+			{
+				std::lock_guard<std::mutex> g(checks_disabled_mtx_);
+
+				if (checks_disabled_callsigns_.contains(callsign)) {
+					checks_disabled_callsigns_.erase(callsign);
+
+					LOG_INFO("Validation checks enabled for flight plan: callsign='{}'",
+						callsign);
+				}
+				else {
+					checks_disabled_callsigns_.insert(callsign);
+
+					LOG_INFO("Validation checks disabled for flight plan: callsign='{}'",
+						callsign);
+				}
 			}
 		}
 	}
@@ -4909,25 +4959,17 @@ void CVFPCPlugin::OnFunctionCall(int FunctionId, const char*
 		LOG_ERROR("Error: {}", ex);
 	}
 	catch (...) {
-		LOG_ERROR("Error", "An unexpected error occured");
+		LOG_ERROR("An unexpected error occurred");
 	}
 }
 
-bool CVFPCPlugin::ChecksEnabledForFlightPlan(const EuroScopePlugIn::CFlightPlan& flightPlan) {
-	try {
-		std::string cad = flightPlan.GetControllerAssignedData().GetFlightStripAnnotation(0);
-		if (!strcmp(cad.c_str(), "VFPC/OFF")) return false;
-	}
-	catch (const std::exception& ex) {
-		LOG_ERROR("Error: {}", ex.what());
-	}
-	catch (const std::string& ex) {
-		LOG_ERROR("Error: {}", ex);
-	}
-	catch (...) {
-		LOG_ERROR("Error", "An unexpected error occured");
-	}
-	return true;
+bool CVFPCPlugin::ChecksEnabledForFlightPlan(
+	const EuroScopePlugIn::CFlightPlan& flightPlan)
+{
+	const std::string callsign = flightPlan.GetCallsign();
+
+	std::lock_guard<std::mutex> g(checks_disabled_mtx_);
+	return !checks_disabled_callsigns_.contains(callsign);
 }
 
 // Gets flight plan, checks if (S/D)VFR, calls checking algorithms,
@@ -5086,14 +5128,14 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 		// Set console output to full validation details
 		else if (startsWith((COMMAND_PREFIX + "full").c_str(), sCommandLine)) {
 			console_results_view_ = ResultsView::Full;
-			SendToConsole(vfpc::urgent, "Console results view set to FULL.");
+			SendToConsole("Console results view set to FULL.");
 			LOG_INFO("Console results view set to FULL");
 			return true;
 		}
 		// Set console output to summary validation details
 		else if (startsWith((COMMAND_PREFIX + "summary").c_str(), sCommandLine)) {
 			console_results_view_ = ResultsView::Summary;
-			SendToConsole(vfpc::urgent, "Console results view set to SUMMARY.");
+			SendToConsole("Console results view set to SUMMARY.");
 			LOG_INFO("Console results view set to SUMMARY");
 			return true;
 		}
@@ -5101,15 +5143,11 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 			ShowConfigStatus_();
 			return true;
 		}
-		else if (startsWith((COMMAND_PREFIX + CHECK_COMMAND).c_str(), sCommandLine)) {
-			checkFPDetail(ResultsView::Full);
-			return true;
-		}
 		else if (startsWith((COMMAND_PREFIX + TRACE_COMMAND).c_str(), sCommandLine)) {
 			auto lg = spdlog::default_logger();
 
 			if (!lg) {
-				SendToConsole("VFPC logger not initialised");
+				SendToConsole(vfpc::urgent, "VFPC logger not initialised");
 				return true;
 			}
 			lg->set_level(spdlog::level::trace);
@@ -5118,18 +5156,18 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 			SendToConsole("VFPC logging set to TRACE");
 			LOG_INFO("Runtime log level changed to TRACE");
 		}
-		else if (startsWith((COMMAND_PREFIX + INFO_COMMAND).c_str(), sCommandLine)) {
+		else if (startsWith((COMMAND_PREFIX + NODEBUG_COMMAND).c_str(), sCommandLine)) {
 			auto lg = spdlog::default_logger();
 
 			if (!lg) {
-				SendToConsole("VFPC logger not initialised");
+				SendToConsole(vfpc::urgent, "VFPC logger not initialised");
 				return true;
 			}
 			lg->set_level(spdlog::level::info);
 			spdlog::set_level(spdlog::level::info);   // also sets global level
 
-			SendToConsole("VFPC logging set to INFO");
-			LOG_INFO("Runtime log level changed to INFO");
+			SendToConsole("VFPC logging set to NO DEBUG");
+			LOG_INFO("Runtime log level changed to NO DEBUG");
 			return true;
 		}
 	}

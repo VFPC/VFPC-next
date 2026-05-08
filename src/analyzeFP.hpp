@@ -506,7 +506,8 @@ private:
 		const std::vector<std::string>& normalised_route,
 		const std::string& first_waypoint) const;
 
-	bool SidRestrictionsContainTimeWindow_(
+	bool MatchingSidRestrictionHasTimeWindow_(
+		const FlightPlanRow& row,
 		const rapidjson::Value& restrictions) const;
 
 	bool RestrictionTypeSelectorMatches_(
@@ -551,16 +552,19 @@ private:
 	std::vector<std::string> CollectRouteExamples_(
 		const rapidjson::Value& constraints,
 		const std::string& destination,
-		int rfl) const;
+		int rfl,
+		const std::vector<std::string>& route_points) const;
 
 	std::string RouteOutputShort_(const rapidjson::Value& constraints,
 		const std::string& destination,
 		int rfl,
+		const std::vector<std::string>& route_points,
 		std::size_t max_examples = 2) const;
 
 	std::string RouteOutputFailureDetail_(const rapidjson::Value& constraints,
 		const std::string& destination,
 		int rfl,
+		const std::vector<std::string>& route_points,
 		std::size_t max_examples = 5) const;
 
 	//==========================================================
