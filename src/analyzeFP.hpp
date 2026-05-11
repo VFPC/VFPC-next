@@ -46,12 +46,21 @@ struct FlightPlanRow
 	std::string origin;
 	std::string destination;
 	std::string route;
+
 	std::vector<std::string> route_points;
+
 	std::string sid;
 	std::string sid_suffix;
 	std::string first_waypoint;
+
 	std::string aircraft_type;
 	std::string engine_type;
+
+	// Future navigation capability support
+	std::string remarks;   // Raw EuroScope Item 18 remarks
+	std::string pbn;       // Extracted PBN/ value from remarks
+	bool has_rnav1 = false;
+
 	int rfl = 0;
 	bool is_ifr = false;
 };
@@ -169,10 +178,14 @@ public:
 	//==============================================================
 	virtual std::vector<bool> checkDestination(const rapidjson::Value& constraints, const std::string& destination, std::vector<bool>& in)const;
 	virtual std::vector<bool> checkExitPoint(const rapidjson::Value& constraints, const std::vector<std::string>& extracted_route, std::vector<bool>& in)const;
-	virtual std::vector<bool> checkRoute(const rapidjson::Value& constraints, const std::vector<std::string>& extracted_route, std::vector<bool>& in)const;
+	virtual std::vector<bool> checkRoute(
+		const rapidjson::Value& constraints,
+		const std::vector<std::string>& extracted_route,
+		std::vector<bool>& in,
+		std::vector<std::string>* route_advisories = nullptr) const; 
 	virtual std::vector<bool> checkMinMax(const rapidjson::Value& constraints, int RFL, std::vector<bool>& in)const;
 	virtual std::vector<bool> checkDirection(const rapidjson::Value& constraints, int RFL, std::vector<bool>& in)const;
-	virtual std::vector<bool> checkAlerts(const rapidjson::Value& constraints, bool* warn, std::vector<bool>& in)const;
+	virtual std::vector<bool> checkAlerts(const rapidjson::Value& constraints, bool* warn, std::vector<bool>& in, int rfl)const;
 	virtual void checkFPDetail(ResultsView view);
 	//==============================================================
 	// 8. Validation output formatting
@@ -184,6 +197,13 @@ public:
 	virtual std::string RestrictionsOutput(const rapidjson::Value& sid_ele, const FlightPlanRow& row, bool check_type = true, bool check_time = true, bool check_ban = true, std::vector<size_t> successes = {})const;
 	virtual std::vector<std::vector<std::string>> RestrictionsSingle(const rapidjson::Value& restrictions, const FlightPlanRow& row, bool check_type = true, bool check_time = true, bool check_ban = true)const;
 	virtual std::string SuffixOutput(const rapidjson::Value& sid_ele, std::vector<size_t> successes = {})const;
+	
+	// Airway equivalence helpers
+	static bool IsAirwayToken_(const std::string& token);
+	static std::string StripUpperAirwayPrefix_(const std::string& token);
+	static bool IsUpperLowerAirwayEquivalent_(const std::string& expected, const std::string& filed);
+	
+	static bool RouteTokenMatchesStrictOrAirwayEquivalent_(const std::string& expected, const std::string& filed, std::vector<std::string>* warnings);
 	virtual std::vector<std::string> SuffixSingle(const rapidjson::Value& restrictions) const;
 	virtual std::string DirectionOutput(const rapidjson::Value& constraints, std::vector<size_t> successes)const;
 	virtual std::string MinMaxOutput(const rapidjson::Value& constraints, std::vector<size_t> successes)const;
@@ -288,7 +308,8 @@ public:
 
 	bool routeContains(
 		const std::vector<std::string>& filed_route,
-		const rapidjson::Value& constraint_route_array) const
+		const rapidjson::Value& constraint_route_array,
+		std::vector<std::string>* route_advisories = nullptr) const
 	{
 		for (rapidjson::SizeType i = 0; i < constraint_route_array.Size(); ++i) {
 			if (!constraint_route_array[i].IsString()) {
@@ -313,15 +334,34 @@ public:
 			}
 
 			bool admissible = true;
+			std::vector<std::string> airway_warnings_for_candidate;
+
 			for (size_t j = 0; j < waypoints.size(); ++j) {
 				if (waypoints[j] == WILDCARD) {
 					continue;
 				}
-				if (waypoints[j] != filed_route[j]) {
+
+				if (!CVFPCPlugin::RouteTokenMatchesStrictOrAirwayEquivalent_(
+					waypoints[j],
+					filed_route[i + j],
+					&airway_warnings_for_candidate))
+				{
 					LOG_TRACE("Route mismatch at token {}: expected='{}' actual='{}'",
-						j, waypoints[j], filed_route[j]);
+						j, waypoints[j], filed_route[i + j]);
+
 					admissible = false;
 					break;
+				}
+			}
+
+			if (admissible && !airway_warnings_for_candidate.empty()) {
+				for (const auto& warning : airway_warnings_for_candidate) {
+					LOG_TRACE("Route advisory: {}", warning);
+
+					if (route_advisories &&
+						std::find(route_advisories->begin(), route_advisories->end(), warning) == route_advisories->end()) {
+						route_advisories->push_back(warning);
+					}
 				}
 			}
 
@@ -607,6 +647,8 @@ private:
 	std::string BuildFlightPlanFingerprint_(const FlightPlanRow& row) const;
 
 	void ProcessTrackedFlightPlan_(const FlightPlanRow& row);
+
+	void RevalidateTrackedFlightPlans_(const char* reason);
 
 	void PruneTrackedFlightPlans_();
 

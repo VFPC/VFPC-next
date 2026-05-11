@@ -30,6 +30,7 @@ struct PluginConfig {
     COLORREF TAG_RED = RGB(190, 0, 0);
     COLORREF TAG_AMBER = RGB(255, 170, 0);
     COLORREF TAG_GREY = RGB(150, 150, 150);
+	COLORREF TAG_CYAN = RGB(0, 255, 255);
 
 	// Results view
     std::string console_results_view = "summary";

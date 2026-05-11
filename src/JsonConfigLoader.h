@@ -140,6 +140,7 @@ public:
             colours.AddMember("green", make_colour_object_(0, 190, 0, alloc), alloc);
             colours.AddMember("yellow", make_colour_object_(255, 165, 0, alloc), alloc);
             colours.AddMember("grey", make_colour_object_(128, 128, 128, alloc), alloc);
+			colours.AddMember("cyan", make_colour_object_(0, 255, 255, alloc), alloc);
 
             if (config_doc_.HasMember("colours")) {
                 config_doc_["colours"] = colours;
@@ -154,7 +155,7 @@ public:
         rapidjson::Value& colours = config_doc_["colours"];
 
         warn_unknown_keys_(colours,
-            { "red", "amber", "green", "yellow", "grey" },
+            { "red", "amber", "green", "yellow", "grey", "cyan"},
             "section 'colours'");
 
         struct ColourDefault {
@@ -169,7 +170,8 @@ public:
             { "amber",  255, 165, 0   },
             { "green",  0,   190, 0   },
             { "yellow", 255, 165, 0   },
-            { "grey",   128, 128, 128 }
+            { "grey",   128, 128, 128 },
+			{ "cyan",   0,   190, 190 }
         };
 
         for (const auto& def : defaults) {
@@ -292,6 +294,7 @@ public:
         colours.AddMember("green", make_colour(0, 190, 0), alloc);
         colours.AddMember("yellow", make_colour(255, 165, 0), alloc);
 		colours.AddMember("grey", make_colour(128, 128, 128), alloc);
+		colours.AddMember("cyan", make_colour(0, 255, 255), alloc);
 
 
         doc.AddMember("colours", colours, alloc);
@@ -447,6 +450,7 @@ public:
     ColourRGB Yellow() const { return GetColour("yellow"); }
 	ColourRGB Amber() const { return GetColour("amber"); }
 	ColourRGB Grey() const { return GetColour("grey"); }
+	ColourRGB Cyan() const { return GetColour("cyan"); }
 
     COLORREF ToColorRef(const ColourRGB& c) const {
         return RGB(c.r, c.g, c.b);

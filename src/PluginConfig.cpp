@@ -36,6 +36,7 @@ bool InitialiseConfig(const std::string& filepath, PluginConfig& plugin_config) 
 	JsonConfigLoader::ColourRGB green = config.Green();
 	JsonConfigLoader::ColourRGB yellow = config.Yellow();
 	JsonConfigLoader::ColourRGB grey = config.Grey();
+	JsonConfigLoader::ColourRGB cyan = config.Cyan();
 	
 
 	plugin_config.TAG_RED = RGB(red.r, red.g, red.b);
@@ -43,6 +44,7 @@ bool InitialiseConfig(const std::string& filepath, PluginConfig& plugin_config) 
 	plugin_config.TAG_GREEN = RGB(green.r, green.g, green.b);
 	plugin_config.TAG_YELLOW = RGB(yellow.r, yellow.g, yellow.b);
 	plugin_config.TAG_GREY = RGB(grey.r, grey.g, grey.b);
+	plugin_config.TAG_CYAN = RGB(cyan.r, cyan.g, cyan.b);
 
 	plugin_config.console_results_view = config.ConsoleResultsView();
 	plugin_config.config_warnings = config.warnings();
