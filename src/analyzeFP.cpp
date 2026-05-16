@@ -30,6 +30,9 @@ namespace
 	std::mutex controller_override_mtx_;
 	std::unordered_set<std::string> controller_override_callsigns_;
 
+	std::mutex skipped_airport_log_mtx_;
+	std::unordered_set<std::string> skipped_airport_logged_;
+
 	int relCount = 0;
 
 	PluginConfig plugin_config_;
@@ -366,11 +369,11 @@ CVFPCPlugin::CVFPCPlugin(void) :CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 
 CVFPCPlugin::~CVFPCPlugin()
 {
-	LOG_INFO("Stopping version thread ....");
+	LOG_DEBUG("Stopping version thread ....");
 	if (version_thread_.joinable())
 		version_thread_.request_stop();
 
-	LOG_INFO("Stopping airport worker thread ....");
+	LOG_DEBUG("Stopping airport worker thread ....");
 
 	if (airport_thread_.joinable())
 		airport_thread_.request_stop();
@@ -927,9 +930,9 @@ void CVFPCPlugin::StartVersionCheckAsync()
 	version_thread_ = std::jthread([this, plugin_config_copy]
 	(std::stop_token st) mutable
 		{
-			LOG_INFO("Version thread: entered worker");
+			LOG_DEBUG("Version thread: entered worker");
 			const bool ok = VersionCall_Worker(plugin_config_copy, st);
-			LOG_INFO("Version thread: worker returned {}", ok);
+			LOG_DEBUG("Version thread: worker returned {}", ok);
 			validVersion.store(ok, std::memory_order_release);
 			version_checked.store(true, std::memory_order_release);
 		});
@@ -1026,7 +1029,7 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 			out = true;
 		}
 		else {
-			LOG_TRACE("Version Call: No New Version Since Last Check");
+			LOG_DEBUG("Version Call: No New Version Since Last Check");
 			out = true;
 		}
 	}
@@ -1133,11 +1136,11 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 				if (lastupdate[i] > timedata[i]) {
 					apiUpdated = true;
 					stop = true;
-					LOG_INFO("Version Call: Update Has Occurred - Pull From API Next Pass.");
+					LOG_DEBUG("Version Call: Update Has Occurred - Pull From API Next Pass.");
 				}
 				else if (lastupdate[i] != timedata[i]) {
 					stop = true;
-					LOG_INFO("Version Call: Update Has Not Occurred.");
+					LOG_DEBUG("Version Call: Update Has Not Occurred.");
 				}
 			}
 		}
@@ -2128,18 +2131,18 @@ std::vector<bool> CVFPCPlugin::CheckConstraintRestrictions_(const FlightPlanRow&
 // 8a. Flight-plan parsing and normalisation helpers.
 CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanRow& row) const
 {
-	LOG_DEBUG("ValidateFlightPlan_: callsign='{}' eobt='{}' origin='{}' dest='{}' sid='{}' fwp='{}'",
+	LOG_TRACE("ValidateFlightPlan_: callsign='{}' eobt='{}' origin='{}' dest='{}' sid='{}' fwp='{}'",
 		row.callsign,
 		row.eobt,
 		row.origin,
 		row.destination,
 		row.sid,
 		row.first_waypoint);
-	LOG_DEBUG("ValidateFlightPlan_: callsign='{}' is_ifr={} sid_suffix='{}'",
+	LOG_TRACE("ValidateFlightPlan_: callsign='{}' is_ifr={} sid_suffix='{}'",
 		row.callsign,
 		row.is_ifr,
 		row.sid_suffix);
-	LOG_DEBUG("ValidateFlightPlan_: callsign='{}' aircraft_type='{}' engine_type='{}' pbn='{}' has_rnav1={}",
+	LOG_TRACE("ValidateFlightPlan_: callsign='{}' aircraft_type='{}' engine_type='{}' pbn='{}' has_rnav1={}",
 		row.callsign,
 		row.aircraft_type,
 		row.engine_type,
@@ -2408,6 +2411,48 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 		}
 	}
 
+	// Detect flights that appear to have filed a SID in the route,
+	// but EuroScope has not recognised a SID. This sometimes happens
+	// when the filed SID is not valid for the runway in use.
+	if (have_sids &&
+		row.sid.empty() &&
+		!normalised_route.empty() &&
+		DoesSidOrRoutePointExist_(*airportSids, normalised_route.front()))
+	{
+		const std::string first = normalised_route.front();
+
+		SetField_(validationResult,
+			VF_SID,
+			"SID Not Recognised",
+			"Filed route begins with '" + first +
+			"' but no valid SID was recognised. "
+			"Possible invalid SID for active runway.");
+
+		SetBlockedFields_(validationResult,
+			{
+				VF_DESTINATION,
+				VF_EXIT_POINT,
+				VF_ROUTE,
+				VF_MIN_MAX,
+				VF_ODD_EVEN,
+				VF_SUFFIX,
+				VF_RESTRICTIONS,
+				VF_WARNINGS,
+				VF_BANS
+			},
+			"Blocked because the route appears to contain a SID that EuroScope did not recognise.");
+
+		SetFailed_(validationResult, "SID");
+
+		LOG_DEBUG(
+			"ValidateFlightPlan_: callsign='{}' result='SID' status={} reason='route starts with SID point but row.sid is blank' first='{}'",
+			row.callsign,
+			static_cast<int>(validationResult.status),
+			first);
+
+		return validationResult;
+	}
+
 	// ----------------------------------------------------------
 	// 8. Find matching SID / non-SID route
 	// ----------------------------------------------------------
@@ -2540,6 +2585,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	std::vector<bool> new_validity;
 	std::vector<std::string> route_advisories;
 	std::vector<size_t> direction_input_successes;
+	std::vector<size_t> minmax_input_successes;
 	SidRestrictionResult sid_restriction_result{};
 	RestrictionFailureFlags constraint_restriction_fails{};
 	bool warn = false;
@@ -2649,6 +2695,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 					break;
 
 				case 4:
+					minmax_input_successes = CollectSuccesses(validity); 
 					new_validity = checkMinMax(*constraints, row.rfl, validity);
 					break;
 
@@ -2832,11 +2879,26 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 				}
 
 				if (sid_level_time_advisory) {
-					if (!warning_text.empty()) {
+					if (!warning_text.empty() &&
+						warning_text.back() != ' ') {
 						warning_text += " ";
 					}
 
-					warning_text += "Valid per filed EOBT. Confirm actual departure time if operating outside the permitted time window.";
+					std::string window_text;
+
+					if (const auto* sidLvlRestrictions = FindArrayMember(*matched_sid, "restrictions")) {
+						window_text = MatchingSidRestrictionTimeWindowText_(row, *sidLvlRestrictions);
+					}
+
+					if (!window_text.empty()) {
+						warning_text +=
+							"Valid per filed EOBT. Confirm actual departure time if operating outside "
+							+ window_text + ".";
+					}
+					else {
+						warning_text +=
+							"Valid per filed EOBT. Confirm actual departure time if operating outside the permitted time window.";
+					}
 				}
 
 				SetField_(validationResult, VF_WARNINGS, "Warnings Present.", warning_text);
@@ -2921,9 +2983,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 		{
 			if (round == 4) {
 				const std::string text =
-					"Failed " + MinMaxOutput(*constraints, successes) +
-					" Alternative " +
-					RouteOutput(*constraints, row.route_points, row.destination, row.rfl, true);
+					LevelFailureDetail_(*constraints, minmax_input_successes, row);
 
 				SetField_(validationResult, VF_MIN_MAX, "Failed MIN_MAX.", text);
 			}
@@ -3204,6 +3264,41 @@ bool CVFPCPlugin::TryFindSidIndex_(const rapidjson::Value& sids,
 	return false;
 }
 
+bool CVFPCPlugin::DoesSidOrRoutePointExist_(
+	const rapidjson::Value& sids,
+	const std::string& point) const
+{
+	if (!sids.IsArray() || sids.Empty() || point.empty()) {
+		return false;
+	}
+
+	const std::string wanted = to_upper(point);
+
+	for (rapidjson::SizeType i = 0; i < sids.Size(); ++i) {
+		const auto& sid = sids[i];
+
+		if (!sid.IsObject()) {
+			continue;
+		}
+
+		const auto* constraints = FindArrayMember(sid, "constraints");
+		if (!constraints) {
+			continue;
+		}
+
+		const auto* pointVal = FindMemberValue(sid, "point");
+		if (!pointVal || !pointVal->IsString()) {
+			continue;
+		}
+
+		if (to_upper(pointVal->GetString()) == wanted) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 bool CVFPCPlugin::NormaliseAndValidateRouteSyntax_(std::vector<std::string>& route,
 	const std::string& origin,
 	const std::string& destination,
@@ -3416,6 +3511,37 @@ void CVFPCPlugin::TryLockActiveAirportFromFlightPlan_(const	FlightPlanRow& row)
 		std::lock_guard<std::mutex> g(active_mtx_);
 		if (active_airport_source_ ==
 			ActiveAirportSource::ControllerIdentity) {
+			return;
+		}
+
+		// If airport was only inferred, allow it to be corrected
+		// when another origin repeatedly appears.
+		if (active_airport_locked_ &&
+			active_airport_source_ == ActiveAirportSource::Inferred &&
+			row.origin != active_airport_) {
+
+			int& count = origin_counts_[row.origin];
+			count++;
+
+			LOG_TRACE("Inference correction: origin '{}' count={} while locked to '{}'",
+				row.origin, count, active_airport_);
+
+			const int SWITCH_THRESHOLD = 3;
+
+			if (count >= SWITCH_THRESHOLD) {
+				LOG_WARN("Changing inferred active airport from '{}' to '{}' after repeated mismatch",
+					active_airport_, row.origin);
+
+				active_airport_ = row.origin;
+				active_airport_locked_ = true;
+				active_airport_source_ = ActiveAirportSource::Inferred;
+				airport_data_requested_ = false;
+				origin_counts_.clear();
+
+				airport_data_.store(nullptr, std::memory_order_release);
+				airport_reload_requested_.store(true, std::memory_order_release);
+			}
+
 			return;
 		}
 
@@ -3648,8 +3774,10 @@ void CVFPCPlugin::ClearActiveAirport_()
 		ActiveAirportSourceToString_(active_airport_source_));
 
 	active_airport_.clear();
+	active_airport_locked_ = false;
 	active_airport_source_ = ActiveAirportSource::None;
-	airport_reload_requested_.store(true, std::memory_order_release);
+	airport_data_requested_ = false;
+	origin_counts_.clear();
 
 }
 
@@ -3739,6 +3867,20 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 			tracked.fingerprint = fingerprint;
 			tracked.last_seen = now;
 			tracked.last_row = row;
+
+			LOG_INFO(
+				"Flight plan first seen: callsign='{}' origin='{}' dest='{}' eobt='{}' sid='{}' route='{}' rfl={} aircraft='{}' type='{}'",
+				row.callsign,
+				row.origin,
+				row.destination,
+				row.eobt,
+				row.sid,
+				row.route,
+				row.rfl,
+				row.aircraft_type,
+				row.engine_type
+			);
+
 			tracked_flightplans_[row.callsign] = std::move(tracked);
 			if (can_validate_now) should_validate = true;
 			else should_store_pending = true;
@@ -3789,10 +3931,49 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 
 	auto result = ValidateFlightPlan_(row);
 	result.itemString = TagMnemonicFromResult_(result);
+
+	const std::string result_fingerprint =
+		result.itemString + "|" +
+		result.fields[VF_STATUS].summary + "|" +
+		result.fields[VF_SID].summary + "|" +
+		result.fields[VF_DESTINATION].summary + "|" +
+		result.fields[VF_EXIT_POINT].summary + "|" +
+		result.fields[VF_ROUTE].summary + "|" +
+		result.fields[VF_MIN_MAX].summary + "|" +
+		result.fields[VF_ODD_EVEN].summary + "|" +
+		result.fields[VF_SUFFIX].summary + "|" +
+		result.fields[VF_RESTRICTIONS].summary + "|" +
+		result.fields[VF_WARNINGS].summary + "|" +
+		result.fields[VF_BANS].summary + "|" +
+		result.fields[VF_SYNTAX].summary;
+
 	{
 		std::lock_guard<std::mutex> g(tracked_flightplans_mtx_);
 		auto it = tracked_flightplans_.find(row.callsign);
 		if (it != tracked_flightplans_.end()) {
+			if (!it->second.has_logged_result ||
+				it->second.last_logged_result_fingerprint != result_fingerprint)
+			{
+				LOG_INFO(
+					"Validation result: callsign='{}' result='{}' status='{}' sid='{}' dest='{}' exit='{}' route='{}' level='{}' odd_even='{}' restrictions='{}' warnings='{}' bans='{}'",
+					row.callsign,
+					result.itemString,
+					result.fields[VF_STATUS].summary,
+					result.fields[VF_SID].summary,
+					result.fields[VF_DESTINATION].summary,
+					result.fields[VF_EXIT_POINT].summary,
+					result.fields[VF_ROUTE].summary,
+					result.fields[VF_MIN_MAX].summary,
+					result.fields[VF_ODD_EVEN].summary,
+					result.fields[VF_RESTRICTIONS].summary,
+					result.fields[VF_WARNINGS].summary,
+					result.fields[VF_BANS].summary
+				);
+
+				it->second.last_logged_result_fingerprint = result_fingerprint;
+				it->second.has_logged_result = true;
+			}
+
 			it->second.last_result = std::move(result);
 		}
 	}
@@ -3857,6 +4038,11 @@ void CVFPCPlugin::ResetTrackedFlightPlans_()
 	{
 		std::lock_guard<std::mutex> g(checks_disabled_mtx_);
 		checks_disabled_callsigns_.clear();
+	}
+
+	{
+		std::lock_guard<std::mutex> g(skipped_airport_log_mtx_);
+		skipped_airport_logged_.clear();
 	}
 }
 
@@ -4151,6 +4337,67 @@ bool CVFPCPlugin::MatchingSidRestrictionHasTimeWindow_(
 	}
 
 	return false;
+}
+
+std::string CVFPCPlugin::FormatRestrictionTimeWindow_(
+	const rapidjson::Value& restriction) const
+{
+	const auto* startObj = FindMemberValue(restriction, "start");
+	const auto* endObj = FindMemberValue(restriction, "end");
+
+	if (!startObj || !endObj ||
+		!startObj->IsObject() ||
+		!endObj->IsObject()) {
+		return {};
+	}
+
+	const auto* startTime = FindMemberValue(*startObj, "time");
+	const auto* endTime = FindMemberValue(*endObj, "time");
+
+	if (!startTime || !endTime ||
+		!startTime->IsString() ||
+		!endTime->IsString()) {
+		return {};
+	}
+
+	std::string start = startTime->GetString();
+	std::string end = endTime->GetString();
+
+	if (start.size() != 4 || end.size() != 4) {
+		return {};
+	}
+
+	return start.substr(0, 2) + ":" + start.substr(2, 2) +
+		" - " +
+		end.substr(0, 2) + ":" + end.substr(2, 2);
+}
+
+std::string CVFPCPlugin::MatchingSidRestrictionTimeWindowText_(
+	const FlightPlanRow& row,
+	const rapidjson::Value& restrictions) const
+{
+	if (!restrictions.IsArray()) {
+		return {};
+	}
+
+	for (const auto& restriction : restrictions.GetArray()) {
+		if (!restriction.IsObject()) {
+			continue;
+		}
+
+		RestrictionFailureFlags fails{};
+
+		if (!RestrictionObjectMatches_(row, restriction, fails)) {
+			continue;
+		}
+
+		const std::string window = FormatRestrictionTimeWindow_(restriction);
+		if (!window.empty()) {
+			return window;
+		}
+	}
+
+	return {};
 }
 
 //==============================================================
@@ -4487,6 +4734,22 @@ std::vector<std::vector<std::string>> CVFPCPlugin::RestrictionsSingle(
 		return rests;
 	}
 
+	std::string fallback_time_window;
+
+	for (rapidjson::SizeType i = 0; i < restrictions.Size(); ++i) {
+		const auto& r = restrictions[i];
+
+		if (!r.IsObject()) {
+			continue;
+		}
+
+		fallback_time_window = FormatRestrictionTimeWindow_(r);
+
+		if (!fallback_time_window.empty()) {
+			break;
+		}
+	}
+
 	for (rapidjson::SizeType i = 0; i < restrictions.Size(); ++i) {
 		const auto& restriction = restrictions[i];
 		if (!restriction.IsObject()) {
@@ -4530,8 +4793,8 @@ std::vector<std::vector<std::string>> CVFPCPlugin::RestrictionsSingle(
 		}
 
 		// If the failure is time-based and an alternative exists,
-// do not say the aircraft type is invalid.
-// The type is only identifying which aircraft the time rule applies to.
+		// do not say the aircraft type is invalid.
+		// The type is only identifying which aircraft the time rule applies to.
 		if (check_time) {
 			std::string altText;
 
@@ -4552,9 +4815,16 @@ std::vector<std::vector<std::string>> CVFPCPlugin::RestrictionsSingle(
 			}
 
 			if (!altText.empty()) {
+				std::string window = FormatRestrictionTimeWindow_(restriction);
+
+				if (window.empty()) {
+					window = fallback_time_window;
+				}
+
 				this_rest[0] = fmt::format(
-					"Use {} instead because this SID is only available during the permitted time window",
-					altText);
+					"Use {} instead because this SID is only available during {} Zulu",
+					altText,
+					window.empty() ? "the permitted time window (Zulu)" : window);
 			}
 		}
 		else if (check_type) {
@@ -4819,6 +5089,78 @@ std::string CVFPCPlugin::MinMaxOutput(const rapidjson::Value& constraints,
 
 	out = out.substr(0, out.size() - 2) + ".";
 	return out;
+}
+
+//Outputs more detail for a Min/Max failure to make it more user friendly.
+std::string CVFPCPlugin::LevelFailureDetail_(
+	const rapidjson::Value& constraints,
+	const std::vector<size_t>& candidates,
+	const FlightPlanRow& row) const
+{
+	if (candidates.empty()) {
+		return "Filed FL" + std::to_string(row.rfl / 100) +
+			" is outside the permitted level range.";
+	}
+
+	const auto& c = constraints[static_cast<rapidjson::SizeType>(candidates.front())];
+
+	int min = 0;
+	int max = 0;
+
+	if (const auto* v = FindMemberValue(c, "min"); v && v->IsInt()) {
+		min = v->GetInt();
+	}
+
+	if (const auto* v = FindMemberValue(c, "max"); v && v->IsInt()) {
+		max = v->GetInt();
+	}
+
+	std::string reason;
+
+	if (const auto* alerts = FindArrayMember(c, "alerts"); alerts && !alerts->Empty()) {
+		for (const auto& alert : alerts->GetArray()) {
+			if (!alert.IsObject()) {
+				continue;
+			}
+
+			const auto* note = FindMemberValue(alert, "note");
+			if (note && note->IsString() && std::strlen(note->GetString()) > 0) {
+				reason = note->GetString();
+			}
+
+			const auto* srd = FindMemberValue(alert, "srd");
+			if (srd && srd->IsInt()) {
+				if (!reason.empty()) {
+					reason += " ";
+				}
+				reason += "SRD Note " + std::to_string(srd->GetInt()) + ".";
+			}
+
+			break;
+		}
+	}
+
+	std::string text = "Filed FL" + std::to_string(row.rfl / 100);
+
+	if (max > 0 && (row.rfl / 100) > max) {
+		text += " exceeds maximum permitted FL" + std::to_string(max);
+	}
+	else if (min > 0 && (row.rfl / 100) < min) {
+		text += " is below minimum permitted FL" + std::to_string(min);
+	}
+	else {
+		text += " is outside the permitted level range";
+	}
+
+	text += " for " + row.origin + "->" + row.destination;
+
+	if (!reason.empty()) {
+		text += " (" + reason + ")";
+	}
+
+	text += ".";
+
+	return text;
 }
 
 //Outputs valid initial routes (from Constraints array) as string
@@ -5441,8 +5783,20 @@ void CVFPCPlugin::OnGetTagItem(EuroScopePlugIn::CFlightPlan flightPlan,
 		}
 
 		if (!locked_airport.empty() && origin != locked_airport) {
-			LOG_TRACE("Skipping validation for callsign '{}' origin '{}' because active airport is locked to '{}'",
-				row.callsign, origin, locked_airport);
+			const std::string skip_key =
+				row.callsign + "|" + origin + "|" + locked_airport;
+
+			bool should_log = false;
+			{
+				std::lock_guard<std::mutex> g(skipped_airport_log_mtx_);
+				should_log = skipped_airport_logged_.insert(skip_key).second;
+			}
+
+			if (should_log) {
+				LOG_TRACE("Skipping validation for callsign '{}' origin '{}' because active airport is locked to '{}'",
+					row.callsign, origin, locked_airport);
+			}
+
 			strcpy_s(sItemString, 16, "OFF");
 			if (pRGB) *pRGB = plugin_config_.TAG_GREY;
 			return;
@@ -5718,7 +6072,7 @@ void CVFPCPlugin::OnTimer(int Counter)
 				airport_load_inflight_.store(false, std::memory_order_release);
 
 				RevalidateTrackedFlightPlans_(
-					fileLoad ? ".vfpc file airport data loaded" : ".vfpc load airport data loaded"
+					fileLoad ? "file airport data loaded" : "server airport data loaded"
 				);
 			}
 			else {
@@ -5754,7 +6108,7 @@ void CVFPCPlugin::OnTimer(int Counter)
 		if (airport_reload_requested_.exchange(false, std::memory_order_acq_rel)) {
 			// Prevent overlap
 			if (airport_load_inflight_.exchange(true, std::memory_order_acq_rel)) {
-				LOG_DEBUG("Airport reload request ignored because a load is already in flight"); 
+				LOG_WARN("Airport reload request ignored because a load is already in flight"); 
 				last_update = Counter;
 				return;
 			}

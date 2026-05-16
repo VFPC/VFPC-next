@@ -207,6 +207,10 @@ public:
 	virtual std::vector<std::string> SuffixSingle(const rapidjson::Value& restrictions) const;
 	virtual std::string DirectionOutput(const rapidjson::Value& constraints, std::vector<size_t> successes)const;
 	virtual std::string MinMaxOutput(const rapidjson::Value& constraints, std::vector<size_t> successes)const;
+	std::string LevelFailureDetail_(
+		const rapidjson::Value& constraints,
+		const std::vector<size_t>& candidates,
+		const FlightPlanRow& row) const;
 	virtual std::string RouteOutput(const rapidjson::Value& constraints, const std::vector<std::string>& extracted_route, const std::string& dest, int rfl, bool req_lvl)const;
 	virtual std::string ExitPointOutput(const rapidjson::Value& airport, std::vector<std::string> extracted_route)const;
 	virtual std::string DestinationOutput(const rapidjson::Value& airport, const std::string& dest)const;
@@ -426,7 +430,11 @@ private:
 		std::chrono::steady_clock::time_point last_seen;
 		ValidationResult last_result;
 		FlightPlanRow last_row;
+
+		bool has_logged_result = false;
+		std::string last_logged_result_fingerprint;
 	};
+
 	struct ParsedFlightPlanData
 	{
 		string eobt;
@@ -511,6 +519,10 @@ private:
 		const string& first_wp,
 		size_t& pos)const;
 
+	bool DoesSidOrRoutePointExist_(
+		const rapidjson::Value& sids,
+		const std::string& point) const;
+
 	bool IsIfrFlightPlan_(const EuroScopePlugIn::CFlightPlan& flightPlan)const;
 
 	ParsedFlightPlanData CParseFlightPlanData_(const EuroScopePlugIn::CFlightPlan& flightPlan) const;
@@ -547,6 +559,13 @@ private:
 		const std::string& first_waypoint) const;
 
 	bool MatchingSidRestrictionHasTimeWindow_(
+		const FlightPlanRow& row,
+		const rapidjson::Value& restrictions) const;
+
+	std::string FormatRestrictionTimeWindow_(
+		const rapidjson::Value& restriction) const;
+
+	std::string MatchingSidRestrictionTimeWindowText_(
 		const FlightPlanRow& row,
 		const rapidjson::Value& restrictions) const;
 
