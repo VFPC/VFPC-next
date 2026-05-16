@@ -65,8 +65,14 @@ bool InitializeLogging(PluginConfig& pc)
             // Make it the default logger (useful if you call spdlog::info(...) elsewhere)
             spdlog::set_default_logger(logger);
 
-            // Global settings
-            if (!pc.pattern.empty()) spdlog::set_pattern(pc.pattern);
+			// Global settings, set UTC time and optional pattern
+            if (!pc.pattern.empty()) {
+                logger->set_formatter(std::make_unique<spdlog::pattern_formatter>(
+                    pc.pattern,
+                    spdlog::pattern_time_type::utc
+                ));
+            }
+
             if (pc.flush_interval_sec > 0)
                 spdlog::flush_every(std::chrono::seconds(pc.flush_interval_sec));
 
@@ -75,7 +81,7 @@ bool InitializeLogging(PluginConfig& pc)
             logger->flush_on(to_level(pc.flush_level));
 		
 
-            logger->info("{} plugin version {} logging started.", MY_PLUGIN_NAME, MY_PLUGIN_VERSION);
+            logger->info("{} {} logging started.", VFPC_PLUGIN_NAME, VFPC_DISPLAY_VERSION);
 
             log_initialized = true;
         }

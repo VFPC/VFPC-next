@@ -73,17 +73,16 @@ public:
         // --- spdlog section ---
         if (!validate_section("spdlog", {
                 {"log_directory", FieldType::String,  true, "uk/data/plugin/vfpc/log" },
-                {"log_filename",  FieldType::String,  true, "vfpc2_log.txt" },
                 {"max_files",     FieldType::Integer, true, "5"},
                 {"flush_interval_sec", FieldType::Integer, true, "1"},
-                {"pattern",       FieldType::String,  true, "[%Y-%m-%d %H:%M:%S] [%l] %v"},
+                {"pattern",       FieldType::String,  true, "[%Y-%m-%dT%H:%M:%SZ] [%l] %v"},
                 {"level",         FieldType::String,  true, "info"},
                 {"flush_level",   FieldType::String,  true, "info"},
                 {"truncate",      FieldType::Boolean, true, "false"}
             })) return false;
 
         warn_unknown_keys_(config_doc_["spdlog"],
-            { "log_directory", "log_filename", "max_files", "flush_interval_sec",
+            { "log_directory", "max_files", "flush_interval_sec",
               "pattern", "level", "flush_level", "truncate" },
             "section 'spdlog'");
 
@@ -141,6 +140,7 @@ public:
             colours.AddMember("green", make_colour_object_(0, 190, 0, alloc), alloc);
             colours.AddMember("yellow", make_colour_object_(255, 165, 0, alloc), alloc);
             colours.AddMember("grey", make_colour_object_(128, 128, 128, alloc), alloc);
+			colours.AddMember("cyan", make_colour_object_(0, 255, 255, alloc), alloc);
 
             if (config_doc_.HasMember("colours")) {
                 config_doc_["colours"] = colours;
@@ -155,7 +155,7 @@ public:
         rapidjson::Value& colours = config_doc_["colours"];
 
         warn_unknown_keys_(colours,
-            { "red", "amber", "green", "yellow", "grey" },
+            { "red", "amber", "green", "yellow", "grey", "cyan"},
             "section 'colours'");
 
         struct ColourDefault {
@@ -170,7 +170,8 @@ public:
             { "amber",  255, 165, 0   },
             { "green",  0,   190, 0   },
             { "yellow", 255, 165, 0   },
-            { "grey",   128, 128, 128 }
+            { "grey",   128, 128, 128 },
+			{ "cyan",   0,   190, 190 }
         };
 
         for (const auto& def : defaults) {
@@ -246,10 +247,9 @@ public:
         rapidjson::Value spdlog(rapidjson::kObjectType);
 
         spdlog.AddMember("log_directory", "uk/data/plugin/vfpc/log", alloc);
-        spdlog.AddMember("log_filename", "vfpc2_log.txt", alloc);
         spdlog.AddMember("max_files", 5, alloc);
         spdlog.AddMember("flush_interval_sec", 1, alloc);
-        spdlog.AddMember("pattern", "[%Y-%m-%d %H:%M:%S] [%l] %v", alloc);
+        spdlog.AddMember("pattern", "[%Y-%m-%d %H:%M:%SZ] [%l] %v", alloc);
         spdlog.AddMember("level", "info", alloc);
         spdlog.AddMember("flush_level", "info", alloc);
         spdlog.AddMember("truncate", false, alloc);
@@ -294,6 +294,7 @@ public:
         colours.AddMember("green", make_colour(0, 190, 0), alloc);
         colours.AddMember("yellow", make_colour(255, 165, 0), alloc);
 		colours.AddMember("grey", make_colour(128, 128, 128), alloc);
+		colours.AddMember("cyan", make_colour(0, 255, 255), alloc);
 
 
         doc.AddMember("colours", colours, alloc);
@@ -347,10 +348,6 @@ public:
     //--------------------------------
     std::string LogDirectory() const {
         return get_string_("spdlog", "log_directory");
-	}
-
-    std::string LogFilename() const {
-        return get_string_("spdlog", "log_filename");
 	}
 
     int MaxFiles() const {
@@ -453,6 +450,7 @@ public:
     ColourRGB Yellow() const { return GetColour("yellow"); }
 	ColourRGB Amber() const { return GetColour("amber"); }
 	ColourRGB Grey() const { return GetColour("grey"); }
+	ColourRGB Cyan() const { return GetColour("cyan"); }
 
     COLORREF ToColorRef(const ColourRGB& c) const {
         return RGB(c.r, c.g, c.b);
