@@ -23,12 +23,11 @@ const string DATA_FILE = "Sid.json";
 const string LOG_FILE = "VFPC.log";
 
 const string COMMAND_PREFIX = ".vfpc ";
+const string CONFIG_COMMAND = "config";
+const string FILE_COMMAND = "file"; 
 const string LOAD_COMMAND = "load";
-const string FILE_COMMAND = "file";
-const string LOG_COMMAND = "log";
-//const string CHECK_COMMAND = "check";
+const string NODEBUG_COMMAND = "nodebug"; 
 const string TRACE_COMMAND = "trace";
-const string NODEBUG_COMMAND = "nodebug";
 
 const string DCT_ENTRY = "DCT";
 const string SPDLVL_SEP = "/";

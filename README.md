@@ -34,10 +34,9 @@ VFPC only makes sense when the underlying data is current.
 Before relying on it, make sure:
 
 - your UK sector files are current
-- your EuroScope navigation data is current
 - VFPC has current airport data from the live service, or you are deliberately loading a current local `Sid.json`
 
-After updating sector files or navigation data, restart EuroScope.
+After updating sector files restart EuroScope.
 
 ## Installation
 
@@ -51,8 +50,8 @@ On first run, VFPC creates `vfpc_config.json` in the same folder if it is missin
 
 Add a new departure-list tag item with:
 
-- Tag Item Type: `VFPC (UK)/VFPC`
-- Mouse Button Function: `VFPC (UK)/Options`
+- Tag Item Type: `VFPC/VFPC`
+- Mouse Button Function: `VFPC/Options`
 - Recommended Header: `FPC`
 - Recommended Item Width: `3`
 - Align To Center: `Off`
@@ -62,14 +61,27 @@ Then enable that tag item in the departure list.
 
 The current popup menu provides:
 
-- `Show Checks`
-- `Toggle Checks`
-
-`Show Checks` outputs the current validation result for the selected flight plan. `Toggle Checks` disables or re-enables VFPC for that specific flight plan.
+- `Show Checks (SUMMARY)` – Displays a condensed validation summary for the selected aircraft, showing only the key outcome of each check.
+- `Show Checks (FULL)` – Displays the complete flight plan validation result for the selected aircraft, including all individual checks and detailed explanations.
+- `Toggle Override` – Marks or unmarks the selected flight plan as controller-approved, overriding normal validation results for that aircraft.
+- `Toggle Checks` – Enables or disables VFPC validation for the selected flight plan.
 
 ## Tag Results
 
 The tag is intentionally compact. It shows the most important current state for the flight plan.
+
+### Display Colours
+
+VFPC uses configurable colours to make flight plan validation status easy to identify at a glance within EuroScope tags and plugin output.
+
+The default colour assignments are:
+
+- **Green** – Validation passed successfully with no issues detected.
+- **Amber** – Validation passed, but a warning or advisory condition applies.
+- **Red** – Validation failed due to an error, restriction, or prohibited route.
+- **Grey** – Validation is disabled for the flight plan, not applicable, or no validation result is available.
+- **Cyan** – Controller override has been applied, indicating the flight plan has been manually accepted.
+- **Yellow** – Reserved for additional alert or attention states where required.
 
 ### Pass And Non-Fail States
 
@@ -78,6 +90,9 @@ The tag is intentionally compact. It shows the most important current state for 
 - `VFR` the flight plan was not checked because it is not IFR
 - `PDG` validation is pending, usually because airport data is still loading
 - `OFF` checks were disabled for that flight plan, or the flight plan is outside the active airport lane for the session
+- `OVR` the flight plan is controller-approved, overriding normal validation results
+
+**NOTE:** `???` indicates that the plugin may have not been configured correctly in EuroScope (Refer to tEuroScope setup sections above).
 
 ### Failure And Attention States
 
@@ -93,29 +108,24 @@ The tag is intentionally compact. It shows the most important current state for 
 - `SYN` route syntax problem
 - `ERR` validation could not complete correctly
 
-For anything non-trivial, use `Show Checks` or `.vfpc check` and read the detailed output.
-
 ## Console Output And Commands
 
 VFPC supports these chat commands on this branch:
 
-- `.vfpc load`
-  Re-enable API loading and request a fresh airport-data reload.
+- `.vfpc config`
+  Displays the current plugin configuration and highlights any settings using default values.
 
 - `.vfpc file`
-  Disable API loading and attempt a one-time load from local `Sid.json`.
+  Disables API loading and loads validation data for the active airport from the local`Sid.json` JSON file instead.
 
-- `.vfpc check`
-  Output the current validation result for the selected flight plan.
+- `.vfpc load`
+  Enables automatic API data loading, downloads validation data for the active airport, and revalidates tracked flight plans.
 
-- `.vfpc full`
-  Set console output to the full per-field validation view.
+- `.vfpc nodebug`
+  Reduces logging verbosity back to INFO level (normal operational logging).
 
-- `.vfpc summary`
-  Set console output to the shorter summary view.
-
-- `.vfpc config`
-  Show config-default warnings and the current console-results mode.
+- `.vfpc trace`
+  Sets the plugin logging level to TRACE for detailed diagnostic logging.
 
 ## Data Loading
 
@@ -127,24 +137,58 @@ If loading or parsing fails, VFPC may stop automatically reloading until you cor
 
 ## Configuration File
 
-VFPC stores runtime settings in `vfpc_config.json`.
+VFPC uses a JSON configuration file (`vfpc_config.json`) to control logging, API connectivity, display colours, and default output behaviour.
 
-The current top-level settings are:
+Most users will **not need to modify this file**, as the default settings are suitable for normal operation.
+Configuration changes should generally only be made for troubleshooting, customisation, or development purposes.
 
-- `spdlog`
-- `curl`
-- `colours`
-- `console_results_view`
+The contents of this file are validated on plugin startup, and any invalid settings will be reset to their default values with a warning in the logs.
+This file **must** be located within the same directory as `VFPC.dll`.  If it is missing, the plugin will create it with default settings on first run.
 
-The default service settings are:
+### User-adjustable settings
 
-| Key | Value |
-| --- | --- |
-| `base_url` | `https://vfpcplugin.org/` |
-| `airport_endpoint` | `airport?icao=` |
-| `version_endpoint` | `version` |
+The following settings may be safely changed by advanced users:
 
-The service URL should not be changed unless you have been told to do so by the VFPC team.
+- **console_results_view**  
+  Controls the default level of detail shown in console validation output.  
+  Valid values:
+  - `"summary"` – concise validation results (recommended)
+  - `"full"` – detailed validation breakdown
+
+- **colours**  
+  Customises the colours used by VFPC for tag display and status indications.  
+  Colours are defined using RGB values (`r`, `g`, `b`) ranging from 0–255.
+
+- **spdlog.level**  
+  Controls logging verbosity.  
+  Common values:
+  - `"info"` – normal operational logging (recommended)
+  - `"trace"` – detailed diagnostic logging for troubleshooting
+
+### Advanced settings (normally leave unchanged)
+
+These settings are intended for internal use and should only be changed if specifically instructed:
+
+#### Logging (`spdlog`)
+- **log_directory** – Location where log files are written
+- **max_files** – Number of rotated log files to retain
+- **flush_interval_sec** – How frequently logs are written to disk
+- **pattern** – Log message formatting
+- **flush_level** – Logging level that triggers immediate disk flush
+- **truncate** – Whether existing log files are overwritten
+
+#### API connectivity (`curl`)
+- **base_url** – VFPC API server address
+- **airport_endpoint** – Airport data endpoint
+- **version_endpoint** – Version check endpoint
+- **timeout_sec** – Network timeout in seconds
+- **verify_ssl** – Enables SSL certificate verification
+- **user_agent** – HTTP user agent string
+- **default_headers** – HTTP request headers
+
+### Warning
+
+Incorrect changes to advanced settings may prevent VFPC from loading data, writing logs, or communicating with the validation API.
 
 ## Operational Notes
 

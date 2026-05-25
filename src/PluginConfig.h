@@ -3,6 +3,8 @@
 
 // --- C++ Standard ---
 #include <string>
+#include <vector>
+#include <Windows.h>
 
 struct PluginConfig {
     // spdlog
