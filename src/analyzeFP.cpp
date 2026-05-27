@@ -85,7 +85,9 @@ namespace
 		return path;
 	}
 
-	const rapidjson::Value* FindMemberValue(const rapidjson::Value& obj, const char* name)noexcept
+	const rapidjson::Value* FindMemberValue(
+		const rapidjson::Value& obj,
+		const char* name)noexcept
 	{
 		if (!obj.IsObject()) return nullptr;
 		auto it = obj.FindMember(name);
@@ -93,18 +95,25 @@ namespace
 		return &it->value;
 	}
 
-	inline const rapidjson::Value* FindMemberValue(const rapidjson::Value& obj, const std::string& name)noexcept
+	inline const rapidjson::Value* FindMemberValue(
+		const rapidjson::Value& obj, 
+		const std::string& name)noexcept
 	{
 		return FindMemberValue(obj, name.c_str());
 	}
 
-	const rapidjson::Value* FindArrayMember(const rapidjson::Value& obj, const char* name)noexcept
+	const rapidjson::Value* FindArrayMember(
+		const rapidjson::Value& obj, 
+		const char* name)noexcept
 	{
 		const auto* v = FindMemberValue(obj, name);
 		return (v && v->IsArray()) ? v : nullptr;
 	}
 
-	static bool GetIntMember(const rapidjson::Value& obj, const char* name, int& out) noexcept
+	static bool GetIntMember(
+		const rapidjson::Value& obj, 
+		const char* name, 
+		int& out) noexcept
 	{
 		const auto* v = FindMemberValue(obj, name);
 		if (!v || !v->IsInt()) return false;
@@ -248,7 +257,9 @@ namespace
 		return out;
 	}
 
-	std::string TruncateForDisplay_(const std::string& text, std::size_t max_len)
+	std::string TruncateForDisplay_(
+		const std::string& text, 
+		std::size_t max_len)
 	{
 		if (text.size() <= max_len) {
 			return text;
@@ -292,6 +303,26 @@ namespace
 			pbn.find("D2") != std::string::npos ||
 			pbn.find("D3") != std::string::npos ||
 			pbn.find("D4") != std::string::npos;
+	}
+
+	std::string NormaliseEobt_(std::string eobt)
+	{
+		eobt.erase(
+			std::remove_if(
+				eobt.begin(),
+				eobt.end(),
+				[](unsigned char ch) { return !std::isdigit(ch); }),
+			eobt.end());
+
+		if (eobt.empty()) {
+			return {};
+		}
+
+		if (eobt.size() < 4) {
+			eobt.insert(eobt.begin(), 4 - eobt.size(), '0');
+		}
+
+		return eobt;
 	}
 
 } // end namespace
@@ -3673,6 +3704,8 @@ bool CVFPCPlugin::NormaliseAndValidateRouteSyntax_(std::vector<std::string>& rou
 	return true;
 }
 
+
+
 bool CVFPCPlugin::IsIfrFlightPlan_(const EuroScopePlugIn::CFlightPlan& flightPlan) const {
 	std::string fpType{ flightPlan.GetFlightPlanData().GetPlanType() };
 	fpType = to_upper(fpType);
@@ -4055,7 +4088,7 @@ FlightPlanRow CVFPCPlugin::BuildFlightPlanRow_(const EuroScopePlugIn::CFlightPla
 	row.departure_rwy = to_upper(flightPlan.GetFlightPlanData().GetDepartureRwy());
 
 	const auto parsed = CParseFlightPlanData_(flightPlan);
-	row.eobt = parsed.eobt;
+	row.eobt = NormaliseEobt_(parsed.eobt);
 	row.origin = parsed.origin;
 	row.destination = parsed.destination;
 	row.rfl = parsed.rfl;

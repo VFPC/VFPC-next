@@ -609,6 +609,7 @@ private:
 		const std::string& sid,
 		const std::string& first_wp,
 		std::string& outchk) const;
+
 	bool TryFindSidIndex_(const rapidjson::Value& sids,
 		const string& first_wp,
 		size_t& pos)const;
