@@ -10,7 +10,7 @@
 #define VFPC_VERSION_MAJOR 4
 #define VFPC_VERSION_MINOR 0
 #define VFPC_VERSION_PATCH 0
-#define VFPC_VERSION_BUILD 2
+#define VFPC_VERSION_BUILD 3
 
 // Optional prerelease label
 #define VFPC_VERSION_PRERELEASE "beta3"

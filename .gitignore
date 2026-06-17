@@ -149,6 +149,11 @@ build.ninja
 .ninja_log
 
 ############################
+# mkdoc build files
+############################
+site/
+
+############################
 # Keep important project files
 ############################
 !*.sln

@@ -3299,6 +3299,11 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 					SetField_(validationResult, VF_SUFFIX, "Failed Suffix Restriction.", text);
 				}
 				else {
+					const std::vector<size_t>& restriction_output_candidates =
+						!restriction_input_successes.empty()
+						? restriction_input_successes
+						: successes;
+
 					const std::string text =
 						"Failed " +
 						RestrictionsOutput(*matched_sid,
@@ -3306,11 +3311,11 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 							constraint_restriction_fails.type,
 							constraint_restriction_fails.time,
 							constraint_restriction_fails.banned,
-							successes);
+							restriction_output_candidates);
 
 					SetField_(validationResult, VF_RESTRICTIONS, "Failed Restrictions.", text);
 					SetField_(validationResult, VF_SUFFIX, "Passed",
-						"Valid " + SuffixOutput(*matched_sid, successes));
+						"Valid " + SuffixOutput(*matched_sid, restriction_output_candidates));
 				}
 			}
 
@@ -4621,6 +4626,53 @@ bool CVFPCPlugin::MatchingSidRestrictionHasTimeWindow_(
 	return false;
 }
 
+static std::string FormatWindowAsUtc(const std::string& start, const std::string& end)
+{
+	auto toMinutes = [](const std::string& hhmm) -> int {
+		return std::stoi(hhmm.substr(0, 2)) * 60 +
+			std::stoi(hhmm.substr(2, 2));
+		};
+
+	auto fromMinutes = [](int mins) -> std::string {
+		while (mins < 0) mins += 24 * 60;
+		mins %= 24 * 60;
+
+		const int h = mins / 60;
+		const int m = mins % 60;
+
+		return fmt::format("{:02}:{:02}", h, m);
+		};
+
+	// UK winter: local time is UTC.
+	// UK summer/BST: local time is UTC+1.
+	//
+	// Temporary simple version:
+	// Use current local offset from the system clock.
+	const std::time_t now = std::time(nullptr);
+
+	std::tm local_tm{};
+	std::tm utc_tm{};
+
+	localtime_s(&local_tm, &now);
+	gmtime_s(&utc_tm, &now);
+
+	const int local_minutes =
+		local_tm.tm_hour * 60 + local_tm.tm_min;
+
+	const int utc_minutes =
+		utc_tm.tm_hour * 60 + utc_tm.tm_min;
+
+	int offset = local_minutes - utc_minutes;
+
+	if (offset > 12 * 60) offset -= 24 * 60;
+	if (offset < -12 * 60) offset += 24 * 60;
+
+	const int start_utc = toMinutes(start) - offset;
+	const int end_utc = toMinutes(end) - offset;
+
+	return fromMinutes(start_utc) + "-" + fromMinutes(end_utc);
+}
+
 std::string CVFPCPlugin::FormatRestrictionTimeWindow_(
 	const rapidjson::Value& restriction) const
 {
@@ -4649,9 +4701,18 @@ std::string CVFPCPlugin::FormatRestrictionTimeWindow_(
 		return {};
 	}
 
-	return start.substr(0, 2) + ":" + start.substr(2, 2) +
-		" - " +
-		end.substr(0, 2) + ":" + end.substr(2, 2) + "z";
+	const std::string local_window = start.substr(0, 2) + ":" + start.substr(2, 2) +
+		"-" +
+		end.substr(0, 2) + ":" + end.substr(2, 2) + " local";
+	
+	const std::string utc_window = FormatWindowAsUtc(start, end);
+
+	if (utc_window.empty()) {
+		return local_window;
+	} 
+	else {
+		return local_window + " (" + utc_window + "z)";
+	}
 }
 
 std::string CVFPCPlugin::MatchingSidRestrictionTimeWindowText_(
@@ -5014,6 +5075,11 @@ std::string CVFPCPlugin::RestrictionsOutput(const rapidjson::Value& sid_ele,
 {
 	std::vector<std::vector<std::string>> rests{};
 
+	const std::string sid_label =
+		row.sid.empty()
+		? "SID Restrictions"
+		: fmt::format("SID Restrictions for {}", row.sid);
+
 	if (const auto* sidRestrictions = FindArrayMember(sid_ele, "restrictions")) {
 		auto temp = RestrictionsSingle(*sidRestrictions, row, check_type, check_time, check_ban);
 		rests.insert(rests.end(), temp.begin(), temp.end());
@@ -5084,7 +5150,7 @@ std::string CVFPCPlugin::RestrictionsOutput(const rapidjson::Value& sid_ele,
 				temp += rests[i][1];
 			}
 			else {
-				temp += "This route is only available during ";
+				temp += "This route is only permitted ";
 				temp += rests[i][1];
 			}
 		}
@@ -5095,11 +5161,36 @@ std::string CVFPCPlugin::RestrictionsOutput(const rapidjson::Value& sid_ele,
 	}
 
 	if (out.empty()) {
-		return "SID Restrictions: " + std::string(NO_RESULTS) + ".";
+		if (check_ban) {
+			return sid_label + ": Route is not permitted by restriction.";
+		}
+
+		if (check_type) {
+			if (!row.aircraft_type.empty()) {
+				return fmt::format(
+					"{}: {} is not permitted on this SID.",
+					sid_label,
+					row.aircraft_type);
+			}
+
+			return fmt::format(
+				"{}: Aircraft type is not permitted on this SID.",
+				sid_label);
+		}
+
+		if (check_time) {
+			return fmt::format(
+				"{}: Filed EOBT is outside the permitted time window.",
+				sid_label);
+		}
+
+		return fmt::format(
+			"{}: Restriction not satisfied.",
+			sid_label);
 	}
 
 	out.erase(out.size() - RESULT_SEP.size());
-	return "SID Restrictions: " + out + ".";
+	return sid_label + ": " + out + ".";
 }
 
 std::vector<std::vector<std::string>> CVFPCPlugin::RestrictionsSingle(
@@ -5243,7 +5334,7 @@ std::vector<std::vector<std::string>> CVFPCPlugin::RestrictionsSingle(
 
 			if (!altText.empty()) {
 				this_rest[0] = fmt::format(
-					"Use {} instead because {} on this SID is only available during {}",
+					"Use {} instead because {} on this SID is only permitted {}",
 					altText,
 					row.aircraft_type.empty() ? "this aircraft type" : row.aircraft_type,
 					window);
