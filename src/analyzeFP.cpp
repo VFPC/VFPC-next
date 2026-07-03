@@ -415,7 +415,7 @@ CVFPCPlugin::CVFPCPlugin(void) :CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 		SendToConsole(vfpc::urgent, "Configuration file error.");
 		return;
 	}
-
+/*
 	std::string results_view = to_upper(plugin_config_.console_results_view);
 	if (results_view == "FULL") {
 		console_results_view_ = ResultsView::Full;
@@ -423,6 +423,7 @@ CVFPCPlugin::CVFPCPlugin(void) :CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 	else {
 		console_results_view_ = ResultsView::Summary;
 	}
+*/
 
 	if (!plugin_config_.config_warnings.empty()) {
 		SendToConsole(vfpc::urgent,
@@ -434,6 +435,8 @@ CVFPCPlugin::CVFPCPlugin(void) :CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 		SendToConsole(vfpc::urgent, "Error initializing logging, logging disabled.");
 		return;
 	}
+
+	LogConfiguration(plugin_config_);
 
 	// Start async version check (non-blocking)
 	StartVersionCheckAsync();
@@ -511,8 +514,13 @@ void CVFPCPlugin::ApplyTagDisplayFromResult_(const ValidationResult& result,
 		*pRGB = plugin_config_.TAG_AMBER;
 		return;
 	}
-	if (item == "BAN" || item == "SYN" || item == "SID" || item ==
-		"DST" || item == "XPT" || item == "RTE") {
+	if (item == "ERR" || 
+		item == "BAN" || 
+		item == "SYN" || 
+		item == "SID" || 
+		item ==	"DST" ||
+		item == "XIT" ||
+		item == "RTE") {
 		*pRGB = plugin_config_.TAG_RED;
 		return;
 	}
@@ -552,7 +560,7 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 		? result.fields[VF_CALLSIGN].summary
 		: "UNKNOWN";
 
-	SendToConsole("{} {}", callsign, result.itemString);
+	SendToConsole("{} {}", callsign, SummaryHeadingFromMnemonic_(result.itemString));
 
 	switch (result.status) {
 	case ValidationStatus::Passed:
@@ -660,6 +668,26 @@ std::string CVFPCPlugin::TagMnemonicFromResult_(const ValidationResult& result) 
 	// Warning only, no hard failure
 	if (FieldNeedsAttention_(result, VF_WARNINGS)) return "WRN";
 	return "OK!";
+}
+
+std::string CVFPCPlugin::SummaryHeadingFromMnemonic_(const std::string& mnemonic) const
+{
+	if (mnemonic == "SYN") return "SYN - Route Syntax";
+	if (mnemonic == "BAN") return "BAN - Route Ban";
+	if (mnemonic == "SID") return "SID - SID Validation";
+	if (mnemonic == "DST") return "DST - Destination Validation";
+	if (mnemonic == "XIT") return "XIT - Exit Point Validation";
+	if (mnemonic == "RTE") return "RTE - Route Validation";
+	if (mnemonic == "LVL") return "LVL - Flight Level Validation";
+	if (mnemonic == "DIR") return "DIR - Direction Validation";
+	if (mnemonic == "SFX") return "SFX - SID Suffix Validation";
+	if (mnemonic == "RST") return "RST - Restrictions";
+	if (mnemonic == "WRN") return "WRN - Warnings";
+	if (mnemonic == "PDG") return "PDG - Validation Pending";
+	if (mnemonic == "VFR") return "VFR - Not Checked";
+	if (mnemonic == "OK!") return "OK! - Validation Passed";
+
+	return mnemonic;
 }
 
 bool CVFPCPlugin::ConstraintAllowsDestination_(const rapidjson::Value& cond,
@@ -3445,7 +3473,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 
 	LOG_DEBUG("ValidateFlightPlan_: callsign='{}' result='{}' status={} sid='{}' dest='{}' route='{}'",
 		row.callsign,
-		mnemonic,
+		SummaryHeadingFromMnemonic_(mnemonic),
 		static_cast<int>(validationResult.status),
 		validationResult.fields[VF_SID].summary,
 		validationResult.fields[VF_DESTINATION].summary,
@@ -4425,6 +4453,7 @@ bool CVFPCPlugin::FieldIndicatesFailure_(const ValidationResult::Field& field) c
 {
 	if (field.summary == "ERR") return true;
 	if (field.summary.rfind("Failed", 0) == 0) return true;
+	if (field.summary == "Invalid Syntax") return true;
 	if (field.summary == "Route Ban Present.") return true;
 	if (field.summary == "No SIDs") return true;
 	if (field.summary == "SID Required") return true;
@@ -6349,9 +6378,9 @@ void CVFPCPlugin::ShowConfigStatus_()
 {
 	SendToConsole(vfpc::urgent, "VFPC config status");
 
-	std::string view_text = fmt::format("Console results view: {}",
-		(console_results_view_ == ResultsView::Full) ? "FULL" : "SUMMARY");
-	SendToConsole(view_text.c_str(), false);
+	//std::string view_text = fmt::format("Console results view: {}",
+		//(console_results_view_ == ResultsView::Full) ? "FULL" : "SUMMARY");
+	//SendToConsole(view_text.c_str(), false);
 
 	if (plugin_config_.config_warnings.empty()) {
 		SendToConsole("Config warnings: none");
@@ -6370,7 +6399,8 @@ void CVFPCPlugin::ShowConfigStatus_()
 //Handles console commands
 bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 	try {
-		//Restart Automatic Data Loading
+#ifdef _DEBUG
+		//Restart Automatic Data Loading - developer/debug builds only
 		if (startsWith((COMMAND_PREFIX + LOAD_COMMAND).c_str(), sCommandLine))
 		{
 			fileLoad = false;
@@ -6388,7 +6418,7 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 			getSids();
 			return true;
 		}
-		//Disable API and load from Sid.json file
+		//Disable API and load from Sid.json file - developer/debug builds only
 		else if (startsWith((COMMAND_PREFIX + FILE_COMMAND).c_str(), sCommandLine))
 		{
 			autoLoad = false;
@@ -6400,7 +6430,9 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 			getSids();
 			return true;
 		}
-		else if (startsWith((COMMAND_PREFIX + CONFIG_COMMAND).c_str(), sCommandLine)) {
+		else
+#endif
+		if (startsWith((COMMAND_PREFIX + CONFIG_COMMAND).c_str(), sCommandLine)) {
 			ShowConfigStatus_();
 			return true;
 		}

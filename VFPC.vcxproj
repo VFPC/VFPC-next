@@ -19,7 +19,6 @@
     <ClInclude Include="src\Log.h" />
     <ClInclude Include="src\PluginConfig.h" />
     <ClInclude Include="src\stdafx.h" />
-    <ClInclude Include="src\targetver.h" />
     <ClInclude Include="src\TimeWindow.h" />
     <ClInclude Include="src\Utils.h" />
     <ClInclude Include="src\VersionInfo.h" />

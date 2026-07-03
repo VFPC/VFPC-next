@@ -305,6 +305,8 @@ public:
 	std::string CompactFieldName_(ValidationField field) const;
 	bool FieldNeedsAttention_(const ValidationResult& result, ValidationField field) const;
 	std::string TagMnemonicFromResult_(const ValidationResult& result) const;
+	std::string SummaryHeadingFromMnemonic_(const std::string& mnemonic) const;
+
 	//==============================================================
 	// 10. EuroScope event handlers
 	//==============================================================
