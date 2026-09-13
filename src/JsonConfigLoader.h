@@ -67,7 +67,7 @@ public:
         auto& alloc = config_doc_.GetAllocator();
 
         warn_unknown_keys_(config_doc_,
-            { "spdlog", "curl", "colours", "console_results_view" },
+            { "spdlog", "curl", "colours" },
             "top-level config");
 
         // --- spdlog section ---
@@ -209,28 +209,28 @@ public:
         }
 
         // --- console_results_view ---
-        if (!config_doc_.HasMember("console_results_view")) {
-            add_warning("Config: missing 'console_results_view', defaulted to 'summary'");
+        //if (!config_doc_.HasMember("console_results_view")) {
+        //    add_warning("Config: missing 'console_results_view', defaulted to 'summary'");
 
-            rapidjson::Value key;
-            key.SetString("console_results_view", alloc);
+        //    rapidjson::Value key;
+        //    key.SetString("console_results_view", alloc);
 
-            rapidjson::Value val;
-            val.SetString("summary", alloc);
+        //    rapidjson::Value val;
+        //    val.SetString("summary", alloc);
 
-            config_doc_.AddMember(key, val, alloc);
-        }
-        else if (!config_doc_["console_results_view"].IsString()) {
-            log_error("Invalid type for 'console_results_view' (expected string)");
-            return false;
-        }
-        else {
-            const std::string view = config_doc_["console_results_view"].GetString();
-            if (view != "full" && view != "summary") {
-                log_error("Invalid value for 'console_results_view' (must be 'full' or 'summary')");
-                return false;
-            }
-        }
+        //    config_doc_.AddMember(key, val, alloc);
+        //}
+        //else if (!config_doc_["console_results_view"].IsString()) {
+        //    log_error("Invalid type for 'console_results_view' (expected string)");
+        //    return false;
+        //}
+        //else {
+        //    const std::string view = config_doc_["console_results_view"].GetString();
+        //    if (view != "full" && view != "summary") {
+        //        log_error("Invalid value for 'console_results_view' (must be 'full' or 'summary')");
+        //        return false;
+        //    }
+        //}
 
         return true;
     }

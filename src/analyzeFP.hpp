@@ -48,7 +48,13 @@ struct FlightPlanRow
 	std::string destination;
 	std::string route;
 
+	// Tokens present in the route as filed.
+	// Includes airway designators such as L151 and UN859.
 	std::vector<std::string> route_points;
+
+	// Waypoint sequence expanded by EuroScope.
+	// Includes intermediate points along filed airways.
+	std::vector<std::string> extracted_points;
 
 	std::string sid;
 	std::string sid_suffix;
@@ -738,6 +744,28 @@ private:
 		int rfl,
 		const std::vector<std::string>& route_points,
 		std::size_t max_examples = 5) const;
+
+	struct RouteMismatchDetail
+	{
+		bool found = false;
+		std::string previous;
+		std::string expected;
+		std::string actual;
+		std::size_t matched_tokens = 0;
+	};
+
+	RouteMismatchDetail CompareRouteSequence_(
+		const std::vector<std::string>& filed_route,
+		const std::vector<std::string>& expected_route) const;
+
+	RouteMismatchDetail FindBestRouteMismatch_(
+		const rapidjson::Value& constraints,
+		const std::string& destination,
+		int rfl,
+		const std::vector<std::string>& filed_route) const;
+
+	std::string RouteMismatchText_(
+		const RouteMismatchDetail& detail) const;
 
 	//==========================================================
 	// 17. Active airport helpers

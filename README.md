@@ -101,7 +101,7 @@ The default colour assignments are:
 - `XIT` exit-point restriction failure
 - `RTE` route restriction failure
 - `LVL` level-band failure
-- `DIR` odd/even direction failure
+- `OER` odd/even direction failure
 - `SFX` SID suffix failure
 - `RST` SID-level restriction failure
 - `BAN` route ban present
