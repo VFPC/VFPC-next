@@ -1,6 +1,6 @@
 # VFPC-next — Next Session Prompt
 
-_Last updated: 2026-10-04 (session: sidecar harness retired; v4.0.0.0 release PR opened for Peter's review)_
+_Last updated: 2026-10-04 (session: sidecar harness retired; v4.0.0.0 released)_
 
 ---
 
@@ -15,14 +15,15 @@ will waste time rediscovering what's below.
 
 ## Current State
 
-**`main`:** `290b0c61` — clean. This is now **just Peter's production VFPC plugin repo**.
-The sidecar verification lane (`VFPC_Tests` GTest harness, `VFPC_Check` CLI) described in
-older entries below was **removed 2026-10-04** (PR #26) — it was never wired into
-`VFPC.sln`, had no CI build step, and per J. Kino was "never used." Do not resurrect it
-without explicit instruction.
+**`main`:** `19761a9a` — clean. **v4.0.0.0 is released** (PR #27 merged, real merge
+commit, consistent with how Beta2 landed via PR #15). This is now **just Peter's
+production VFPC plugin repo**. The sidecar verification lane (`VFPC_Tests` GTest harness,
+`VFPC_Check` CLI) described in older entries below was **removed 2026-10-04** (PR #26) —
+it was never wired into `VFPC.sln`, had no CI build step, and per J. Kino was "never
+used." Do not resurrect it without explicit instruction.
 
-**`v4.0.0-Beta3` (open PR #27, awaiting Peter's review):** Peter's **v4.0.0.0 release
-candidate** (`245b3bbc`, pushed 2026-10-04 ~11:34 UK time). Summary of what it does:
+**`v4.0.0-Beta3` (merged into `main` via PR #27, 2026-10-04):** Peter's **v4.0.0.0 release**
+(`245b3bbc`, pushed 2026-10-04 ~11:34 UK time). Summary of what it does:
 1. Trims `src/` to only files actually part of the build (removed several now-dead headers:
    `SidApplicability.hpp`, `ValidatorCore.hpp`, `RouteSyntax.hpp`, `ConstraintChecks.hpp`,
    `FlightPlanRow.hpp`, `SidLookup.hpp`, `UrlData.h/.cpp`).
@@ -33,9 +34,15 @@ candidate** (`245b3bbc`, pushed 2026-10-04 ~11:34 UK time). Summary of what it d
 4. Removed commented-out code; resource/version files updated to show DEBUG builds in
    DLL Properties->Details; version bumped to `v4.0.0.0`, all beta references removed.
 
-**Do not merge PR #27 without Peter's sign-off** — he's the requested reviewer and this is
-the actual release artifact, not sidecar work. Verified no merge conflicts with `main` via
-`git merge-tree`.
+PR #27 was closed once by accident (Peter clicked "Close pull request" thinking it
+finalized his review -- he'd already left "Reviewed and looks okay to me" at the same
+timestamp). Reopened via `gh pr reopen`, nothing lost. Given he authors this code himself
+and doesn't use GitHub's formal review UI naturally, got his actual go-ahead via a plain
+"are you happy to ship this" question rather than routing through Files-changed/
+Review-changes -- worth defaulting to that lighter path for his future release PRs.
+Merged 2026-10-04 16:32 UTC as `19761a9a`. No CI/build/publish step is wired to `main`
+(only `cacheclear.yml`), so the merge triggered no automatic distribution; if it ever
+needs undoing, GitHub's one-click "Revert" on the merged PR is clean and complete.
 
 **PR #3 (`peter-clean-port-2026-04-03`, Peter's earlier rewrite attempt):** **Closed, never
 merged.** Superseded entirely by the `v4.0.0-Beta3` line (Builds 0–6, now the RC in PR #27).
@@ -50,17 +57,20 @@ The old "PR #3 decision" guidance below is historical only — do not act on it.
   googletest, rapidjson — were under `VFPC_Tests/third_party/`). Confirmed via direct
   inspection that neither project was referenced by `VFPC.sln` or any CI workflow before
   removing.
-- **PR #27 opened** (`v4.0.0-Beta3` → `main`): Peter's release candidate, requested his
-  review before merge.
+- **PR #28 merged**: removed `docs/test-harness.md` (fully described the deleted
+  harness). Left `docs/vfpc-next-supplement.md` alone -- its mentions are scoped to the
+  still-separate `Refactor-of-FP-validation-code` branch, which still has both sidecar
+  directories intact.
+- **PR #27 merged**: Peter's `v4.0.0-Beta3` → `main`, **v4.0.0.0 released**. See "Current
+  State" above for the close/reopen incident and final merge details.
 
 ---
 
 ## Immediate Next Steps
 
-1. **Wait for Peter's review on PR #27.** Do not merge in the meantime.
-2. Once #27 merges, this doc's "Current State" section should be refreshed to reflect the
-   shipped `v4.0.0.0` tag/release.
-3. Not yet done, flagged but out of scope for the 2026-10-04 session — only act on these if
+1. v4.0.0.0 is released on `main`. No GitHub tag or formal Release was cut as part of
+   this merge -- if Peter wants one, that's a separate explicit step, not done yet.
+2. Not yet done, flagged but out of scope for the 2026-10-04 session — only act on these if
    explicitly asked:
    - `docs/test-harness.md` and `docs/vfpc-next-supplement.md` still describe the removed
      sidecar harness.

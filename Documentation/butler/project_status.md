@@ -1,6 +1,6 @@
 # VFPC-next — Project Status
 
-_Last updated: 2026-10-04 (sidecar harness retired; v4.0.0.0 release PR open for Peter's review)_
+_Last updated: 2026-10-04 (v4.0.0.0 released -- PR #27 merged)_
 
 ---
 
@@ -25,8 +25,8 @@ never actually used.
 
 | Branch | Purpose | Status |
 |--------|---------|--------|
-| `main` | Production baseline | Clean at `290b0c61` (post sidecar-removal) |
-| `v4.0.0-Beta3` | Peter's v4.0.0.0 release candidate | **Open PR #27 → `main`, awaiting Peter's review. Do not merge without his sign-off.** |
+| `main` | Production baseline | Clean at `19761a9a` — **v4.0.0.0 released** (merge commit for PR #27) |
+| `v4.0.0-Beta3` | Peter's v4.0.0.0 release candidate | Merged into `main` 2026-10-04 via PR #27 (real merge commit, consistent with PR #15's Beta2 release). Branch itself left in place, not deleted. |
 | `peter-clean-port-2026-04-03` (PR #3) | Peter's earlier rewrite attempt | Closed, never merged — superseded by the Beta3 line |
 
 Other remote branches exist (`backup/*`, `cleanup/*`, `test-harness/main`, several of
@@ -36,12 +36,25 @@ without J. Kino's explicit confirmation per the repo-wide local-git-cleanliness 
 
 ---
 
-## v4.0.0.0 Release Candidate (PR #27) — current state
+## v4.0.0.0 Release — shipped 2026-10-04
 
-Commit `245b3bbc`, authored by Peter Richardson, 2026-10-04. Full description of changes
-is in `next_session_prompt.md` and the PR body itself
-(https://github.com/VFPC/VFPC-next/pull/27). No merge conflicts with `main` (verified via
-`git merge-tree`). Peter requested as reviewer; **not yet merged.**
+Commit `245b3bbc`, authored by Peter Richardson. Full description of changes is in
+`next_session_prompt.md` and the PR body itself
+(https://github.com/VFPC/VFPC-next/pull/27). Merged into `main` as `19761a9a`.
+
+**Process note for next time:** Peter closed PR #27 once by mistake (clicked "Close pull
+request" thinking it was how you finalize a review — he'd already left an approving
+comment, "Reviewed and looks okay to me," at the same timestamp). Reopened via
+`gh pr reopen`, nothing was lost. Given Peter authors this code himself and doesn't use
+GitHub's PR-review UI naturally, a plain-language "are you happy to ship this" question
+got a clearer signal than asking him to work the Files-changed/Review-changes flow. Worth
+defaulting to that lighter-weight confirmation path for his future release PRs rather than
+routing through formal GitHub review mechanics.
+
+**Reversibility:** No CI/build/publish step is wired to this repo's `main` (only
+`cacheclear.yml` exists), so merging doesn't trigger any automatic distribution. If this
+needs to be undone, GitHub's one-click "Revert" button on the merged PR is a clean,
+complete undo.
 
 ---
 
@@ -58,8 +71,8 @@ as fixed/superseded. No need to re-check these unless something resurfaces.)
 
 ## Next Steps
 
-1. Wait for Peter's review on PR #27. Do not merge in the meantime.
-2. Once merged, update this doc's branch table and drop the "Release Candidate" framing
-   in favor of whatever `main` then represents (tag/release notes if Peter cuts one).
-3. Everything else is parked — see `next_session_prompt.md` for the full flagged list
+1. v4.0.0.0 is released. No GitHub tag or formal release notes were cut as part of this
+   merge — if Peter wants a tagged GitHub Release, that's a separate, explicit step not
+   done yet.
+2. Everything else is parked — see `next_session_prompt.md` for the full flagged list
    (stale docs, stale branches) that was found but intentionally not acted on this session.
