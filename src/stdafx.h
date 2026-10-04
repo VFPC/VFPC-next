@@ -1,10 +1,6 @@
 #ifndef STDAFX_H	
 #define STDAFX_H
 
-#pragma once
-
-#include "targetver.h"
-
 #if !defined(_MSVC_LANG) || _MSVC_LANG < 202002L
 #error VFPC requires C++20 or later.
 #endif

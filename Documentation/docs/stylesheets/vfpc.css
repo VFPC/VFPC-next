@@ -1,0 +1,482 @@
+/* =========================================================
+   vFPC documentation theme
+   Based on the original vFPC documentation site
+   ========================================================= */
+
+:root {
+    --vfpc-bg: #050b14;
+    --vfpc-bg-deep: #030811;
+    --vfpc-text: #edf4fb;
+    --vfpc-muted: #a4b6c8;
+    --vfpc-accent: #72d1ff;
+    --vfpc-line: rgba(255, 255, 255, 0.08);
+}
+
+/* Force the documentation to use the vFPC dark theme */
+html,
+body {
+    background: var(--vfpc-bg) !important;
+    color: var(--vfpc-text);
+}
+
+/* Main documentation content */
+.md-main {
+    background: var(--vfpc-bg);
+}
+
+.md-content {
+    color: var(--vfpc-muted);
+}
+
+.md-content__inner {
+    max-width: 780px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Headings */
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+    color: var(--vfpc-text);
+}
+
+.md-typeset h2 {
+    border-bottom: 1px solid var(--vfpc-line);
+    padding-bottom: 0.4rem;
+}
+
+/* Normal text */
+.md-typeset {
+    color: var(--vfpc-muted);
+}
+
+/* Links */
+.md-typeset a {
+    color: var(--vfpc-accent);
+}
+
+.md-typeset a:hover {
+    text-decoration: underline;
+}
+
+/* Bold text */
+.md-typeset strong {
+    color: var(--vfpc-text);
+}
+
+/* =========================================================
+   Remove standard MkDocs theme navigation chrome
+   ========================================================= */
+
+/* Hide the standard blue navigation/header */
+.navbar {
+    display: none;
+}
+
+/* Hide the left-hand page navigation */
+.col-md-3 {
+    display: none;
+}
+
+/* Allow the main documentation column to use the space */
+.col-md-9 {
+    width: 100%;
+    float: none;
+}
+
+/* Main page container */
+.container {
+    width: 100%;
+    max-width: none;
+}
+
+/* Documentation content */
+[role="main"] {
+    width: 100%;
+    padding: 0;
+}
+
+.vfpc-doc-content {
+    max-width: 780px;
+    margin: 0 auto;
+    padding-top: 40px;
+    padding-bottom: 80px;
+}
+
+/* vFPC validation result codes */
+
+.vfpc-tag {
+    font-family: monospace;
+    font-weight: 700;
+}
+
+.vfpc-tag--green {
+    color: #00BE00;
+}
+
+.vfpc-tag--yellow {
+    color: #FFD700;
+}
+
+.vfpc-tag--amber {
+    color: #FFA500;
+}
+
+.vfpc-tag--red {
+    color: #BE0000;
+}
+
+.vfpc-tag--grey {
+    color: #808080;
+}
+
+.vfpc-tag--cyan {
+    color: #00FFFF;
+}
+
+.center {
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Documentation screenshots */
+
+.vfpc-screenshot {
+    display: block;
+    max-width: 700px;
+    width: 100%;
+    height: auto;
+    margin: 1rem auto 0 !important;
+}
+
+.vfpc-screenshot--small {
+    max-width: 400px;
+}
+
+.vfpc-screenshot--wide {
+    max-width: 1000px;
+}
+
+.vfpc-screenshot--50percent {
+    width: 50%;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+.vfpc-caption {
+    display: block;
+    width: 100%;
+    margin: 0.25rem auto 1.5rem !important;
+    text-align: center;
+    font-style: italic;
+}
+
+/* Remove the line box around paragraphs containing screenshots */
+p:has(img.vfpc-screenshot) {
+    line-height: 0;
+    margin-bottom: 0 !important;
+    text-align: center;
+}
+
+/* =========================================================
+   vFPC header
+   ========================================================= */
+
+.vfpc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 18px 40px;
+
+    background: rgba(5, 10, 17, 0.80);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.vfpc-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    color: #ffffff;
+    text-decoration: none;
+    font-size: 1.15rem;
+    font-weight: 600;
+}
+
+.vfpc-brand:hover {
+    color: #ffffff;
+    text-decoration: none;
+}
+
+.vfpc-brand img {
+    display: block;
+    width: 220px;
+    height: auto;
+}
+
+.vfpc-nav {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+}
+
+.vfpc-nav a {
+    color: #a4b6c8;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.vfpc-nav a:hover {
+    color: #72d1ff;
+    text-decoration: none;
+}
+
+/* =========================================================
+   vFPC admonitions / callouts
+   ========================================================= */
+
+.admonition {
+    background: rgba(230, 167, 0, 0.10) !important;
+    border: none !important;
+    border-left: 4px solid #fbbf24 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: #a4b6c8 !important;
+    padding: 14px 18px !important;
+    margin: 1.5rem 0 !important;
+}
+
+.admonition-title {
+    background: none !important;
+    color: #fbbf24 !important;
+    font-weight: 700 !important;
+    padding: 0 !important;
+    margin: 0 0 8px 0 !important;
+}
+
+.admonition .admonition-title {
+    color: #fbbf24 !important;
+}
+
+.admonition p {
+    color: #a4b6c8 !important;
+}
+
+.admonition strong {
+    color: #ffffff !important;
+}
+
+/* Remove any icon added by the MkDocs theme */
+.admonition-title::before {
+    display: none !important;
+}
+
+/* =========================================================
+   Inline code and paths
+   ========================================================= */
+
+code {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #72d1ff !important;
+    border: none !important;
+    border-radius: 4px;
+    padding: 0.15em 0.35em;
+    box-shadow: none !important;
+}
+
+pre {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #edf4fb;
+    border-radius: 4px;
+}
+
+pre code {
+    background: transparent !important;
+    padding: 0;
+}
+
+/* =========================================================
+   Documentation tables
+   ========================================================= */
+
+table {
+    width: 100%;
+    margin: 1.25rem 0 1.75rem;
+    border-collapse: collapse;
+    background: rgba(12, 24, 39, 0.62) !important;
+    color: #a4b6c8 !important;
+}
+
+table thead,
+table thead tr,
+table thead th {
+    background: rgba(114, 209, 255, 0.10) !important;
+    color: #edf4fb !important;
+}
+
+table th {
+    font-weight: 700;
+    text-align: left;
+    padding: 12px 14px !important;
+    border: none !important;
+    border-bottom: 1px solid rgba(114, 209, 255, 0.18) !important;
+}
+
+table tbody,
+table tbody tr,
+table tbody td {
+    background: transparent !important;
+    color: #a4b6c8 !important;
+}
+
+table td {
+    padding: 12px 14px !important;
+    border: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+table tbody tr:nth-child(odd),
+table tbody tr:nth-child(even) {
+    background: transparent !important;
+}
+
+table tbody tr:hover {
+    background: rgba(114, 209, 255, 0.05) !important;
+}
+
+/* Keep links and vFPC result colours intact inside tables */
+table a {
+    color: #72d1ff !important;
+}
+
+table .vfpc-tag--green  { color: #00BE00 !important; }
+table .vfpc-tag--yellow { color: #FFD700 !important; }
+table .vfpc-tag--amber  { color: #FFA500 !important; }
+table .vfpc-tag--red    { color: #BE0000 !important; }
+table .vfpc-tag--grey   { color: #808080 !important; }
+table .vfpc-tag--cyan   { color: #00FFFF !important; }
+
+/* Keep the Colour column wide enough for the indicator and name */
+table th:first-child,
+table td:first-child {
+    width: 160px;
+    white-space: nowrap;
+}
+
+.vfpc-colour {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    vertical-align: -2px;
+    margin-right: 8px;
+}
+
+.vfpc-colour--green  { background: #00BE00; }
+.vfpc-colour--yellow { background: #FFD700; }
+.vfpc-colour--amber  { background: #FFA500; }
+.vfpc-colour--red    { background: #BE0000; }
+.vfpc-colour--grey   { background: #808080; }
+.vfpc-colour--cyan   { background: #00FFFF; }
+
+/* Previous / Next page navigation */
+.vfpc-page-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    margin-top: 40px;
+    padding-top: 24px;
+    border-top: 1px solid var(--vfpc-line);
+}
+
+.vfpc-page-nav a {
+    display: flex;
+    flex-direction: column;
+    width: 48%;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(114, 209, 255, 0.20);
+    border-radius: 6px;
+    text-decoration: none !important;
+}
+
+.vfpc-page-nav span {
+    margin-bottom: 2px;
+    color: var(--vfpc-muted);
+    font-size: 0.75rem;
+    font-weight: 400;
+}
+
+.vfpc-page-nav strong {
+    color: var(--vfpc-accent);
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.vfpc-page-nav strong {
+    color: var(--vfpc-accent);
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.vfpc-page-nav__next {
+    text-align: right;
+    margin-left: auto;
+}
+
+/* Responsive layout */
+@media (max-width: 800px) {
+
+    .vfpc-header {
+        padding: 14px 20px;
+        gap: 18px;
+    }
+
+    .vfpc-brand img {
+        width: 170px;
+    }
+
+    .vfpc-nav {
+        gap: 18px;
+    }
+
+    .vfpc-nav a {
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 600px) {
+
+    .vfpc-header {
+        flex-direction: column;
+        align-items: center;
+        padding: 16px 20px;
+    }
+
+    .vfpc-brand img {
+        width: 180px;
+    }
+
+    .vfpc-nav {
+        width: 100%;
+        justify-content: center;
+        gap: 24px;
+    }
+
+    .vfpc-page-nav {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .vfpc-page-nav a {
+        width: 100%;
+    }
+}
+
+footer {
+    display: none;
+}

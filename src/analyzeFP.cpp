@@ -7,7 +7,6 @@
 #include "PluginConfig.h"
 #include "Utils.h"
 #include "Log.h"
-#include "UrlData.h"
 #include "VersionInfo.h"
 #include "TimeWindow.h"
 
@@ -18,7 +17,6 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
 //==============================================================
 namespace
 {
-	//bool debugMode = true;
 	bool autoLoad = false;
 	bool fileLoad = false;
 	bool apiUpdated = false;
@@ -85,7 +83,9 @@ namespace
 		return path;
 	}
 
-	const rapidjson::Value* FindMemberValue(const rapidjson::Value& obj, const char* name)
+	const rapidjson::Value* FindMemberValue(
+		const rapidjson::Value& obj,
+		const char* name)noexcept
 	{
 		if (!obj.IsObject()) return nullptr;
 		auto it = obj.FindMember(name);
@@ -93,18 +93,71 @@ namespace
 		return &it->value;
 	}
 
-	const rapidjson::Value* FindArrayMember(const rapidjson::Value& obj, const char* name)
+	inline const rapidjson::Value* FindMemberValue(
+		const rapidjson::Value& obj, 
+		const std::string& name)noexcept
+	{
+		return FindMemberValue(obj, name.c_str());
+	}
+
+	const rapidjson::Value* FindArrayMember(
+		const rapidjson::Value& obj, 
+		const char* name)noexcept
 	{
 		const auto* v = FindMemberValue(obj, name);
 		return (v && v->IsArray()) ? v : nullptr;
 	}
 
-	static bool GetIntMember(const rapidjson::Value& obj, const char* name, int& out)
+	static bool GetIntMember(
+		const rapidjson::Value& obj, 
+		const char* name, 
+		int& out) noexcept
 	{
 		const auto* v = FindMemberValue(obj, name);
 		if (!v || !v->IsInt()) return false;
 		out = v->GetInt();
 		return true;
+	}
+
+	std::optional<std::vector<int>> ParseVersionVector_(const std::string& text)
+	{
+		const auto parts = split(text, '.');
+		if (parts.empty() || parts.size() > 4) {
+			return std::nullopt;
+		}
+
+		std::vector<int> out(4, 0);
+		for (size_t i = 0; i < parts.size(); ++i) {
+			if (parts[i].empty() ||
+				!std::all_of(parts[i].begin(), parts[i].end(),
+					[](unsigned char ch) { return std::isdigit(ch) != 0; })) {
+				return std::nullopt;
+			}
+
+			out[i] = std::stoi(parts[i]);
+		}
+
+		return out;
+	}
+
+	std::vector<int> NormaliseVersionVector_(const std::vector<int>& values)
+	{
+		std::vector<int> out(3, 0);
+		for (size_t i = 0; i < std::min<size_t>(3, values.size()); ++i) {
+			out[i] = values[i];
+		}
+		return out;
+	}
+
+	int CompareVersionVectors_(
+		const std::vector<int>& lhs,
+		const std::vector<int>& rhs)
+	{
+		for (size_t i = 0; i < 3; ++i) {
+			if (lhs[i] < rhs[i]) return -1;
+			if (lhs[i] > rhs[i]) return 1;
+		}
+		return 0;
 	}
 
 	std::string JoinStringArray(const rapidjson::Value* arr, const std::string& sep)
@@ -202,7 +255,9 @@ namespace
 		return out;
 	}
 
-	std::string TruncateForDisplay_(const std::string& text, std::size_t max_len)
+	std::string TruncateForDisplay_(
+		const std::string& text, 
+		std::size_t max_len)
 	{
 		if (text.size() <= max_len) {
 			return text;
@@ -246,6 +301,41 @@ namespace
 			pbn.find("D2") != std::string::npos ||
 			pbn.find("D3") != std::string::npos ||
 			pbn.find("D4") != std::string::npos;
+	}
+
+	std::string NormaliseEobt_(std::string eobt)
+	{
+		eobt.erase(
+			std::remove_if(
+				eobt.begin(),
+				eobt.end(),
+				[](unsigned char ch) { return !std::isdigit(ch); }),
+			eobt.end());
+
+		if (eobt.empty()) {
+			return {};
+		}
+
+		if (eobt.size() < 4) {
+			eobt.insert(eobt.begin(), 4 - eobt.size(), '0');
+		}
+
+		return eobt;
+	}
+
+	bool LooksLikeSidDesignator_(const std::string& token)
+	{
+		// Examples:
+		// SONEX1Y
+		// LISTO2S
+		// SANBA1Y
+		//
+		// Also permits an optional runway suffix:
+		// SONEX1Y/23L
+		static const std::regex sid_re(
+			R"(^[A-Z]{2,5}[0-9][A-Z](\/[0-9]{2}[LCR]?)?$)");
+
+		return std::regex_match(token, sid_re);
 	}
 
 } // end namespace
@@ -339,24 +429,26 @@ CVFPCPlugin::CVFPCPlugin(void) :CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 		return;
 	}
 
-	std::string results_view = to_upper(plugin_config_.console_results_view);
-	if (results_view == "FULL") {
-		console_results_view_ = ResultsView::Full;
-	}
-	else {
-		console_results_view_ = ResultsView::Summary;
+	if (plugin_config_.defaulted_settings_count > 0) {
+		SendToConsole(vfpc::urgent,
+			"Config warning: {} setting(s) defaulted. "
+			"Use '.vfpc config' for details.",
+			plugin_config_.defaulted_settings_count);
 	}
 
-	if (!plugin_config_.config_warnings.empty()) {
+	if (plugin_config_.unknown_keys_count > 0) {
 		SendToConsole(vfpc::urgent,
-			"Config warnings : {} setting(s) defaulted.  Use '.vfpc config' for details.",
-			plugin_config_.config_warnings.size());
+			"Config warning: {} unrecognised setting(s) ignored. "
+			"Use '.vfpc config' for details.",
+			plugin_config_.unknown_keys_count);
 	}
 
 	if (!InitializeLogging(plugin_config_)) {
 		SendToConsole(vfpc::urgent, "Error initializing logging, logging disabled.");
 		return;
 	}
+
+	LogConfiguration(plugin_config_);
 
 	// Start async version check (non-blocking)
 	StartVersionCheckAsync();
@@ -374,11 +466,14 @@ CVFPCPlugin::~CVFPCPlugin()
 		version_thread_.request_stop();
 
 	LOG_DEBUG("Stopping airport worker thread ....");
-
 	if (airport_thread_.joinable())
 		airport_thread_.request_stop();
 
-	// Release published snapshot before shutdown (helps DLL unload determinism)
+	if (thisVersion) {
+		free(thisVersion);
+		thisVersion = nullptr;
+	}
+
 	airport_data_.store(nullptr, std::memory_order_release);
 
 	LOG_INFO("Plugin logging shutting down ....");
@@ -427,12 +522,17 @@ void CVFPCPlugin::ApplyTagDisplayFromResult_(const ValidationResult& result,
 			: plugin_config_.TAG_AMBER;
 		return;
 	}
-	if (item == "LVL" || item == "DIR" || item == "SFX") {
+	if (item == "LVL" || item == "OER" || item == "SFX") {
 		*pRGB = plugin_config_.TAG_AMBER;
 		return;
 	}
-	if (item == "BAN" || item == "SYN" || item == "SID" || item ==
-		"DST" || item == "XPT" || item == "RTE") {
+	if (item == "ERR" || 
+		item == "BAN" || 
+		item == "SYN" || 
+		item == "SID" || 
+		item ==	"DST" ||
+		item == "XIT" ||
+		item == "RTE") {
 		*pRGB = plugin_config_.TAG_RED;
 		return;
 	}
@@ -472,7 +572,7 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 		? result.fields[VF_CALLSIGN].summary
 		: "UNKNOWN";
 
-	SendToConsole("{} {}", callsign, result.itemString);
+	SendToConsole("{} {}", callsign, SummaryHeadingFromMnemonic_(result.itemString));
 
 	switch (result.status) {
 	case ValidationStatus::Passed:
@@ -536,7 +636,7 @@ std::string CVFPCPlugin::CompactFieldName_(ValidationField field) const
 	case VF_EXIT_POINT: return "EXIT";
 	case VF_ROUTE: return "RTE";
 	case VF_MIN_MAX: return "LVL";
-	case VF_ODD_EVEN: return "DIR";
+	case VF_ODD_EVEN: return "OER";
 	case VF_SUFFIX: return "SFX";
 	case VF_RESTRICTIONS: return "RSTR";
 	case VF_WARNINGS: return "WARN";
@@ -574,12 +674,32 @@ std::string CVFPCPlugin::TagMnemonicFromResult_(const ValidationResult& result) 
 	if (FieldNeedsAttention_(result, VF_EXIT_POINT)) return "XIT";
 	if (FieldNeedsAttention_(result, VF_ROUTE)) return "RTE";
 	if (FieldNeedsAttention_(result, VF_MIN_MAX)) return "LVL";
-	if (FieldNeedsAttention_(result, VF_ODD_EVEN)) return "DIR";
+	if (FieldNeedsAttention_(result, VF_ODD_EVEN)) return "OER";
 	if (FieldNeedsAttention_(result, VF_SUFFIX)) return "SFX";
 	if (FieldNeedsAttention_(result, VF_RESTRICTIONS)) return "RST";
 	// Warning only, no hard failure
 	if (FieldNeedsAttention_(result, VF_WARNINGS)) return "WRN";
 	return "OK!";
+}
+
+std::string CVFPCPlugin::SummaryHeadingFromMnemonic_(const std::string& mnemonic) const
+{
+	if (mnemonic == "SYN") return "SYN - Route Syntax";
+	if (mnemonic == "BAN") return "BAN - Route Ban";
+	if (mnemonic == "SID") return "SID - SID Validation";
+	if (mnemonic == "DST") return "DST - Destination Validation";
+	if (mnemonic == "XIT") return "XIT - Exit Point Validation";
+	if (mnemonic == "RTE") return "RTE - Route Validation";
+	if (mnemonic == "LVL") return "LVL - Flight Level Validation";
+	if (mnemonic == "OER") return "OER - Direction Validation";
+	if (mnemonic == "SFX") return "SFX - SID Suffix Validation";
+	if (mnemonic == "RST") return "RST - Restrictions";
+	if (mnemonic == "WRN") return "WRN - Warnings";
+	if (mnemonic == "PDG") return "PDG - Validation Pending";
+	if (mnemonic == "VFR") return "VFR - Not Checked";
+	if (mnemonic == "OK!") return "OK! - Validation Passed";
+
+	return mnemonic;
 }
 
 bool CVFPCPlugin::ConstraintAllowsDestination_(const rapidjson::Value& cond,
@@ -647,36 +767,63 @@ bool CVFPCPlugin::webCall(string url, string& out, std::stop_token st)
 		return false;
 	}
 
+	curl_slist* headers = nullptr;
+	auto cleanup = [&]() {
+		if (headers) {
+			curl_slist_free_all(headers);
+			headers = nullptr;
+		}
+		curl_easy_cleanup(curl);
+		};
+
 	char errbuf[CURL_ERROR_SIZE]{};
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
-
 	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 
-	// Timeouts: split connect vs total
-	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+	const long total_timeout =
+		std::max<long>(1L, static_cast<long>(plugin_config_.timeout_sec));
+	const long connect_timeout =
+		std::max<long>(1L, std::min<long>(5L, total_timeout));
 
-	// Windows/thread friendliness
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, connect_timeout);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, total_timeout);
+
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-
-	// Follow redirects (common with https / CDNs)
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
 
-	// Write response
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER,
+		plugin_config_.verify_ssl ? 1L : 0L);
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST,
+		plugin_config_.verify_ssl ? 2L : 0L);
+
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlCallback);
 
-	// Optional but good practice: identify yourself
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "VFPC/3.x (EuroScope)");
+	const char* user_agent = plugin_config_.user_agent.empty()
+		? "VFPC/4.x (EuroScope)"
+		: plugin_config_.user_agent.c_str();
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent);
 
-	// Cancellation hook
+	if (!plugin_config_.header_accept.empty()) {
+		headers = curl_slist_append(
+			headers,
+			("Accept: " + plugin_config_.header_accept).c_str());
+	}
+	if (!plugin_config_.header_content_type.empty()) {
+		headers = curl_slist_append(
+			headers,
+			("Content-Type: " + plugin_config_.header_content_type).c_str());
+	}
+	if (headers) {
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+	}
+
 	CurlStopCtx stopCtx{ st };
 	curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CurlXferInfo);
 	curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &stopCtx);
 	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
-	// Perform
 	CURLcode result = curl_easy_perform(curl);
 
 	long httpCode = 0;
@@ -686,7 +833,7 @@ bool CVFPCPlugin::webCall(string url, string& out, std::stop_token st)
 	curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &contentType);
 	std::string contentTypeStr = contentType ? contentType : "(null)";
 
-	curl_easy_cleanup(curl);
+	cleanup();
 
 	LOG_TRACE("Web Call: HTTP {} Content-Type={} bytes={}",
 		httpCode, contentTypeStr, out.size());
@@ -697,14 +844,14 @@ bool CVFPCPlugin::webCall(string url, string& out, std::stop_token st)
 	}
 
 	if (result != CURLE_OK) {
-		std::string detail = (errbuf[0] != '\0') ? errbuf :
-			curl_easy_strerror(result);
+		std::string detail = (errbuf[0] != '\0')
+			? errbuf
+			: curl_easy_strerror(result);
 		LOG_ERROR("Web Call: Call To {} Failed - CURL Error: {} (HTTP Code: {})",
 			url, detail, httpCode);
 		return false;
 	}
 
-	// Treat non-2xx as failure (your choice; but usually correct for JSON fetch)
 	if (httpCode < 200 || httpCode >= 300) {
 		LOG_DEBUG("Web Call: Call To {} HTTP: {} Body prefix: {}",
 			url, std::to_string(httpCode), out.substr(0, 200));
@@ -734,7 +881,7 @@ bool CVFPCPlugin::APICall(const std::string& base_url,
 		SendToConsole(vfpc::urgent, "An error occurred whilst downloading data.The plugin has been disabled.");
 		SendToConsole(vfpc::urgent, "Please restart EuroScope to try again. (Note:.vfpc load will NOT work.");
 
-		LOG_ERROR("API Call to{} : Failed - No Data Returned", url);
+		LOG_ERROR("API Call to {} : Failed - No Data Returned", url);
 
 		return false;
 	}
@@ -912,6 +1059,138 @@ std::vector<std::string> CVFPCPlugin::CollectRouteExamples_(
 	return examples;
 }
 
+CVFPCPlugin::RouteMismatchDetail CVFPCPlugin::CompareRouteSequence_(
+	const std::vector<std::string>& filed_route,
+	const std::vector<std::string>& expected_route) const
+{
+	RouteMismatchDetail detail{};
+
+	if (filed_route.empty() || expected_route.empty()) {
+		return detail;
+	}
+
+	std::size_t filed_pos = 0;
+
+	while (filed_pos < filed_route.size() &&
+		filed_route[filed_pos] != expected_route.front()) {
+		++filed_pos;
+	}
+
+	if (filed_pos >= filed_route.size()) {
+		detail.found = true;
+		detail.expected = expected_route.front();
+		detail.actual = filed_route.front();
+		detail.matched_tokens = 0;
+		return detail;
+	}
+
+	for (std::size_t expected_pos = 0;
+		expected_pos < expected_route.size();
+		++expected_pos, ++filed_pos) {
+
+		if (filed_pos >= filed_route.size()) {
+			detail.found = true;
+			detail.previous = expected_pos > 0 ? expected_route[expected_pos - 1] : "";
+			detail.expected = expected_route[expected_pos];
+			detail.actual = "<end of route>";
+			detail.matched_tokens = expected_pos;
+			return detail;
+		}
+
+		if (filed_route[filed_pos] != expected_route[expected_pos]) {
+			detail.found = true;
+			detail.previous = expected_pos > 0 ? expected_route[expected_pos - 1] : "";
+			detail.expected = expected_route[expected_pos];
+			detail.actual = filed_route[filed_pos];
+			detail.matched_tokens = expected_pos;
+			return detail;
+		}
+	}
+
+	return detail;
+}
+
+CVFPCPlugin::RouteMismatchDetail CVFPCPlugin::FindBestRouteMismatch_(
+	const rapidjson::Value& constraints,
+	const std::string& destination,
+	int rfl,
+	const std::vector<std::string>& filed_route) const
+{
+	RouteMismatchDetail best{};
+
+	if (!constraints.IsArray() || constraints.Empty()) {
+		return best;
+	}
+
+	for (rapidjson::SizeType i = 0; i < constraints.Size(); ++i) {
+		const auto& cond = constraints[i];
+
+		if (!cond.IsObject()) {
+			continue;
+		}
+
+		if (!ConstraintAllowsDestination_(cond, destination)) {
+			continue;
+		}
+
+		if (!ConstraintAllowsLevel_(cond, rfl)) {
+			continue;
+		}
+
+		const auto* routeArr = FindArrayMember(cond, "route");
+		if (!routeArr || routeArr->Empty()) {
+			continue;
+		}
+
+		for (const auto& item : routeArr->GetArray()) {
+			if (!item.IsString()) {
+				continue;
+			}
+
+			std::vector<std::string> expected_route =
+				split(item.GetString(), ' ');
+
+			for (auto& token : expected_route) {
+				token = to_upper(token);
+			}
+
+			const RouteMismatchDetail candidate =
+				CompareRouteSequence_(filed_route, expected_route);
+
+			if (!candidate.found) {
+				continue;
+			}
+
+			if (!best.found || candidate.matched_tokens > best.matched_tokens) {
+				best = candidate;
+			}
+		}
+	}
+
+	return best;
+}
+
+std::string CVFPCPlugin::RouteMismatchText_(
+	const RouteMismatchDetail& detail) const
+{
+	if (!detail.found || detail.expected.empty() || detail.actual.empty()) {
+		return {};
+	}
+
+	if (!detail.previous.empty()) {
+		return fmt::format(
+			"Expected {} after {}, found {}.",
+			detail.expected,
+			detail.previous,
+			detail.actual);
+	}
+
+	return fmt::format(
+		"Expected {}, found {}.",
+		detail.expected,
+		detail.actual);
+}
+
 //==============================================================
 // 5. Version-check worker
 //==============================================================
@@ -927,13 +1206,23 @@ void CVFPCPlugin::StartVersionCheckAsync()
 	const PluginConfig plugin_config_copy = plugin_config_;
 
 	// Start jthread; stop_token is provided automatically
-	version_thread_ = std::jthread([this, plugin_config_copy]
-	(std::stop_token st) mutable
+	version_thread_ = std::jthread([this, plugin_config_copy](std::stop_token st) mutable
 		{
-			LOG_DEBUG("Version thread: entered worker");
-			const bool ok = VersionCall_Worker(plugin_config_copy, st);
-			LOG_DEBUG("Version thread: worker returned {}", ok);
-			validVersion.store(ok, std::memory_order_release);
+			try {
+				LOG_DEBUG("Version thread: entered worker");
+				const bool ok = VersionCall_Worker(plugin_config_copy, st);
+				LOG_DEBUG("Version thread: worker returned {}", ok);
+				validVersion.store(ok, std::memory_order_release);
+			}
+			catch (const std::exception& ex) {
+				LOG_ERROR("Version thread exception: {}", ex.what());
+				validVersion.store(false, std::memory_order_release);
+			}
+			catch (...) {
+				LOG_ERROR("Version thread unknown exception");
+				validVersion.store(false, std::memory_order_release);
+			}
+
 			version_checked.store(true, std::memory_order_release);
 		});
 }
@@ -957,85 +1246,113 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 
 	if (vfpcVersion && vfpcVersion->IsString() &&
 		minVersionVal && minVersionVal->IsString()) {
-		vector<string> minver = split(version["min_version"].GetString(), '.');
-		bool minchange = false;
-		vector<string> curver = split(version["vfpc_version"].GetString(), '.');
-		bool curchange = false;
-		bool check = true;
 
-		for (size_t i = 0; i < minver.size(); i++) {
-			int temp = stoi(minver[i]);
-			if (i < minVersion.size()) {
-				if (check && temp > minVersion[i]) {
-					minchange = true;
-				}
-				else if (temp != minVersion[i]) {
-					check = false;
-				}
-				minVersion[i] = temp;
-			}
-			else {
-				minchange = true;
-				minVersion.push_back(temp);
-			}
-		}
-		if (minVersion.size() > minver.size()) {
-			minVersion.resize(minver.size());
-		}
+		const std::string minimumVersionText = minVersionVal->GetString();
+		const std::string latestVersionText = vfpcVersion->GetString();
 
-		for (size_t i = 0; i < curver.size(); i++) {
+		const auto parsedMinVersion =
+			ParseVersionVector_(minimumVersionText);
 
-			int temp = stoi(curver[i]);
-			if (i < curVersion.size()) {
+		const auto parsedCurrentVersion =
+			ParseVersionVector_(latestVersionText);
 
-				if (check && temp > curVersion[i]) {
-					curchange = true;
-				}
-				else if (temp != curVersion[i]) {
-					check = false;
-				}
-				curVersion[i] = temp;
-			}
-			else {
-				curchange = true;
-				curVersion.push_back(temp);
-			}
-		}
-		if (curVersion.size() > curver.size()) {
-			curVersion.resize(curver.size());
+		if (!parsedMinVersion || !parsedCurrentVersion) {
+			LOG_ERROR(
+				"Version Call: Unreadable version payload. "
+				"vfpc_version='{}' min_version='{}'",
+				latestVersionText,
+				minimumVersionText);
+
+			SendToConsole(
+				vfpc::urgent,
+				"Failed to parse version information from the API - "
+				"the plugin has been disabled.");
+
+			return false;
 		}
 
-		if (minVersion[0] > thisVersion[0] || (minVersion[0] ==
-			thisVersion[0] && minVersion[1] > thisVersion[1]) ||
-			(minVersion[0] == thisVersion[0] && minVersion[1] ==
-				thisVersion[1] && minVersion[2] > thisVersion[2])) {
+		const std::vector<int> installedVersion = {
+			thisVersion ? thisVersion[0] : 0,
+			thisVersion ? thisVersion[1] : 0,
+			thisVersion ? thisVersion[2] : 0
+		};
 
-			LOG_ERROR("Version Call: Discontinued Version In Use. Please update plugin.");
+		const bool minchange =
+			NormaliseVersionVector_(minVersion) != *parsedMinVersion;
+
+		const bool curchange =
+			NormaliseVersionVector_(curVersion) != *parsedCurrentVersion;
+
+		minVersion = *parsedMinVersion;
+		curVersion = *parsedCurrentVersion;
+
+		// Record all three values even when no notification is required.
+		LOG_INFO(
+			"Version Check: installed='{}' minimum_supported='v{}' latest='v{}'",
+			VFPC_DISPLAY_VERSION,
+			minimumVersionText,
+			latestVersionText);
+
+		if (CompareVersionVectors_(minVersion, installedVersion) > 0) {
+			LOG_ERROR(
+				"Version Call: installed version '{}' is below minimum "
+				"supported version 'v{}'. Latest available version is 'v{}'.",
+				VFPC_DISPLAY_VERSION,
+				minimumVersionText,
+				latestVersionText);
+
 			if (minchange) {
+				SendToConsole(
+					vfpc::urgent,
+					"VFPC {} is no longer supported. "
+					"Minimum supported: v{}. Latest available: v{}.",
+					VFPC_DISPLAY_VERSION,
+					minimumVersionText,
+					latestVersionText);
 
-				SendToConsole(vfpc::urgent, "Plugin Update required - the plugin has been disabled.");
+				SendToConsole(
+					vfpc::urgent,
+					"VFPC has been disabled. Please update the VFPC DLL.");
 			}
 		}
-		else if (curVersion[0] > thisVersion[0] || (curVersion[0] ==
-			thisVersion[0] && curVersion[1] > thisVersion[1]) ||
-			(curVersion[0] == thisVersion[0] && curVersion[1] ==
-				thisVersion[1] && curVersion[2] > thisVersion[2])) {
+		else if (CompareVersionVectors_(
+			curVersion,
+			installedVersion) > 0) {
 
-			LOG_INFO("Version Call: Outdated Version In Use");
+			LOG_INFO(
+				"Version Call: update available. "
+				"Installed='{}' latest='v{}'.",
+				VFPC_DISPLAY_VERSION,
+				latestVersionText);
+
 			if (curchange) {
+				SendToConsole(
+					vfpc::urgent,
+					"VFPC update available: installed {}; latest v{}.",
+					VFPC_DISPLAY_VERSION,
+					latestVersionText);
 
-				SendToConsole(vfpc::urgent,"Update available - you may continue using the plugin, but please update as soon as possible.");
+				SendToConsole(
+					"You may continue using this version, "
+					"but please update when convenient.");
 			}
+
 			out = true;
 		}
 		else {
-			LOG_DEBUG("Version Call: No New Version Since Last Check");
+			LOG_DEBUG(
+				"Version Call: installed version '{}' is current. "
+				"Latest available version is 'v{}'.",
+				VFPC_DISPLAY_VERSION,
+				latestVersionText);
+
 			out = true;
 		}
 	}
 	else {
 		LOG_ERROR("Version Call: Plugin Version Data Not Found");
-		SendToConsole(vfpc::urgent, "Failed to check for updates - the plugin has been disabled.");
+		SendToConsole(vfpc::urgent,
+			"Failed to check for updates - the plugin has been disabled.");
 	}
 
 	const auto* airacCycle = FindMemberValue(version, "cycle");
@@ -1420,31 +1737,34 @@ std::vector<bool> CVFPCPlugin::checkDestination(const rapidjson::Value& conditio
 	const std::string& destination,
 	std::vector<bool>& in) const
 {
-	std::vector<bool> out{};
-	out.reserve(conditions.Size());
+	std::vector<bool> out (conditions.Size(), false);
+	bool explicit_destination_match = false;
+
+	// Search only constraints currently in consideration.
+	for (size_t i = 0; i < conditions.Size(); i++) {
+		if (i >= in.size() || !in[i]) continue;
+		const auto& cond = conditions[i];
+		if (!ConstraintAllowsDestination_(cond, destination)) continue;
+
+		const auto* dests = FindArrayMember(cond, "dests");
+		if (dests && !dests->Empty() && !destArrayContains(*dests, destination).empty()) {
+			explicit_destination_match = true;
+			break;
+		}
+	}
 
 	for (size_t i = 0; i < conditions.Size(); i++) {
-		if (!in[i]) {
-			out.push_back(false);
-			continue;
-		}
-
-		bool res = true;
-
+		if (i >= in.size() || !in[i]) continue;
 		const auto& cond = conditions[i];
-		const auto* nodestsArr = FindArrayMember(cond, "nodests");
-		if (nodestsArr && !nodestsArr->Empty()) {
-			if (destArrayContains(*nodestsArr, destination.c_str()).size()) {
-				res = false;
-			}
+		if (!ConstraintAllowsDestination_(cond, destination)) continue;
+
+		if (explicit_destination_match) {
+			const auto* dests = FindArrayMember(cond, "dests");
+			out[i] = dests && !dests->Empty() && !destArrayContains(*dests, destination).empty();
 		}
-		const auto* destsArr = FindArrayMember(cond, "dests");
-		if (destsArr && !destsArr->Empty()) {
-			if (!destArrayContains(*destsArr, destination.c_str()).size()) {
-				res = false;
-			}
+		else {
+			out[i] = true;
 		}
-		out.push_back(res);
 	}
 	return out;
 }
@@ -1505,6 +1825,9 @@ std::vector<bool> CVFPCPlugin::checkRoute(
 	std::vector<bool> out{};
 	out.reserve(sid_constraints.Size());
 
+	std::vector<std::string> advisory_candidates;
+	bool has_clean_success = false;
+
 	for (size_t i = 0; i < sid_constraints.Size(); i++) {
 		if (!in[i]) {
 			out.push_back(false);
@@ -1512,6 +1835,7 @@ std::vector<bool> CVFPCPlugin::checkRoute(
 		}
 
 		bool result = true;
+		std::vector<std::string> local_advisories;
 
 		const auto& constraint = sid_constraints[i];
 		if (!constraint.IsObject()) {
@@ -1521,21 +1845,52 @@ std::vector<bool> CVFPCPlugin::checkRoute(
 
 		const auto* route_array = FindArrayMember(constraint, "route");
 		if (route_array && !route_array->Empty()) {
-			if (!routeContains(filed_route, *route_array, route_advisories)) { // route from FP, routeArr from condition.
+			if (!routeContains(filed_route, *route_array, &local_advisories)) {
 				result = false;
 			}
 		}
 
 		const auto* noroute_array = FindArrayMember(constraint, "noroute");
 		if (noroute_array && !noroute_array->Empty()) {
-			if (routeContains(filed_route, *noroute_array, route_advisories)) {
+			std::vector<std::string> noroute_advisories;
+
+			if (routeContains(filed_route, *noroute_array, &noroute_advisories)) {
 				result = false;
+			}
+		}
+
+		if (result) {
+			if (local_advisories.empty()) {
+				has_clean_success = true;
+			}
+			else {
+				advisory_candidates.insert(
+					advisory_candidates.end(),
+					local_advisories.begin(),
+					local_advisories.end());
 			}
 		}
 
 		out.push_back(result);
 		LOG_TRACE("Route Check: Completed with {} result", BoolToString(result));
 	}
+
+	if (route_advisories && !has_clean_success) {
+		std::sort(advisory_candidates.begin(), advisory_candidates.end());
+		advisory_candidates.erase(
+			std::unique(advisory_candidates.begin(), advisory_candidates.end()),
+			advisory_candidates.end());
+
+		for (const auto& advisory : advisory_candidates) {
+			if (std::find(route_advisories->begin(),
+				route_advisories->end(),
+				advisory) == route_advisories->end())
+			{
+				route_advisories->push_back(advisory);
+			}
+		}
+	}
+
 	return out;
 }
 
@@ -1912,27 +2267,13 @@ bool CVFPCPlugin::RestrictionObjectMatches_(const FlightPlanRow& row,
 		}
 	}
 
-	//// ----------------------------------------------------------
-	//// banned
-	//// ----------------------------------------------------------
-	//if (const auto* bannedValue = FindMemberValue(restriction, "banned");
-	//	bannedValue && bannedValue->IsBool() && bannedValue->GetBool()) {
-	//	local.banned = true;
-
-	//	fails.suffix = fails.suffix || local.suffix;
-	//	fails.type = fails.type || local.type;
-	//	fails.time = fails.time || local.time;
-	//	fails.banned = fails.banned || local.banned;
-
-	//	return false;
-	//}
-
 	// ----------------------------------------------------------
 	// banned
 	// ----------------------------------------------------------
 	// A matching banned restriction is still a MATCH.
 	// Do not return false here, otherwise the constraint is removed
 	// before route matching and the result becomes RTE instead of BAN.
+
 	if (const auto* bannedValue = FindMemberValue(restriction, "banned");
 		bannedValue && bannedValue->IsBool() && bannedValue->GetBool()) {
 		fails.banned = true;
@@ -2125,6 +2466,49 @@ std::vector<bool> CVFPCPlugin::CheckConstraintRestrictions_(const FlightPlanRow&
 	return out;
 }
 
+bool CVFPCPlugin::RouteWouldMatchConstraintRejectedByTime_(
+	const FlightPlanRow& row,
+	const rapidjson::Value& constraints,
+	const std::vector<size_t>& candidates_before_restrictions,
+	const std::vector<std::string>& normalised_route) const
+{
+	for (size_t idx : candidates_before_restrictions) {
+		if (idx >= constraints.Size()) {
+			continue;
+		}
+
+		const auto& constraint =
+			constraints[static_cast<rapidjson::SizeType>(idx)];
+
+		if (!constraint.IsObject()) {
+			continue;
+		}
+
+		const auto* restrictionArr = FindArrayMember(constraint, "restrictions");
+		if (!restrictionArr || restrictionArr->Empty()) {
+			continue;
+		}
+
+		const auto restriction_result =
+			EvaluateConstraintRestrictions_(row, *restrictionArr);
+
+		if (restriction_result.passed || !restriction_result.fails.time) {
+			continue;
+		}
+
+		const auto* routeArr = FindArrayMember(constraint, "route");
+		if (!routeArr || routeArr->Empty()) {
+			continue;
+		}
+
+		if (routeContains(normalised_route, *routeArr, nullptr)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 //==============================================================
 // 8. Validation support helpers
 //==============================================================
@@ -2212,7 +2596,52 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	}
 
 	// ----------------------------------------------------------
-	// 4. Basic field checks
+	// 4. Departure runway availability
+	// ----------------------------------------------------------
+	/************************************************************
+	* EuroScope can initially expose flight plans before a
+	* departure runway has been selected.
+	* Flightplans should not be validated during this temporary
+	* state because the SID may not yet have been recognised or 
+	* assigned.
+	*************************************************************/
+	
+	if (row.departure_rwy.empty()) {
+		SetPending_(validationResult, "PDG");
+
+		SetField_(validationResult,
+			VF_SID,
+			"Waiting for Runway",
+			"Departure runway has not yet been assigned.");
+
+		SetBlockedFields_(validationResult,
+			{
+				VF_DESTINATION,
+				VF_EXIT_POINT,
+				VF_ROUTE,
+				VF_MIN_MAX,
+				VF_ODD_EVEN,
+				VF_SUFFIX,
+				VF_RESTRICTIONS,
+				VF_WARNINGS,
+				VF_BANS
+			},
+			"Validation deferred until a departure runway is assigned.");
+
+		SetField_(validationResult,
+			VF_SYNTAX,
+			"Not Checked",
+			"Route syntax validation deferred until a departure runway is assigned.");
+
+		LOG_TRACE(
+			"ValidateFlightPlan_: callsign='{}' pending because no departure runway is assigned",
+			row.callsign);
+
+		return validationResult;
+	}
+
+	// ----------------------------------------------------------
+	// 5. Basic field checks
 	// ----------------------------------------------------------
 	const bool have_origin = !row.origin.empty();
 	const bool have_destination = !row.destination.empty();
@@ -2253,7 +2682,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	}
 
 	// ----------------------------------------------------------
-	// 5. Single-airport snapshot checks
+	// 6. Single-airport snapshot checks
 	// ----------------------------------------------------------
 	bool can_use_airport_data = false;
 
@@ -2335,7 +2764,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	}
 
 	// ----------------------------------------------------------
-	// 6. Syntax / normalisation checks
+	// 7. Syntax / normalisation checks
 	// ----------------------------------------------------------
 	std::vector<std::string> normalised_route =
 		BuildValidationRoutePoints_(row.route_points);
@@ -2378,7 +2807,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	}
 
 	// ----------------------------------------------------------
-	// 7. SIDs defined for active airport?
+	// 8. SIDs defined for active airport?
 	// ----------------------------------------------------------
 	const rapidjson::Value* airportSids = nullptr;
 	bool have_sids = false;
@@ -2416,10 +2845,10 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	// when the filed SID is not valid for the runway in use.
 	if (have_sids &&
 		row.sid.empty() &&
-		!normalised_route.empty() &&
-		DoesSidOrRoutePointExist_(*airportSids, normalised_route.front()))
+		!row.route_points.empty() &&
+		LooksLikeSidDesignator_(row.route_points.front()))
 	{
-		const std::string first = normalised_route.front();
+		const std::string first = row.route_points.front();
 
 		SetField_(validationResult,
 			VF_SID,
@@ -2454,7 +2883,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	}
 
 	// ----------------------------------------------------------
-	// 8. Find matching SID / non-SID route
+	// 9. Find matching SID / non-SID route
 	// ----------------------------------------------------------
 	/********************************************************************************
 	* This section attempts to find a matching SID or non-SID departure 
@@ -2564,6 +2993,11 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 						"Blocked because SID constraints are invalid.");
 				}
 				else {
+					LOG_TRACE("Found matching {} route at index {}. Constraints count: {}",
+						is_non_sid_departure ? "non-SID" : row.sid,
+						sid_index,
+						constraints->Size());
+
 					usable_sid_found = true;
 
 					if (is_non_sid_departure) {
@@ -2578,13 +3012,14 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	}
 	
 	// ----------------------------------------------------------
-	// 9. Constraint / restriction processing
+	// 10. Constraint / restriction processing
 	// ----------------------------------------------------------
 	int round = 0;
 	std::vector<bool> validity;
 	std::vector<bool> new_validity;
 	std::vector<std::string> route_advisories;
 	std::vector<size_t> direction_input_successes;
+	std::vector<size_t> restriction_input_successes;
 	std::vector<size_t> minmax_input_successes;
 	SidRestrictionResult sid_restriction_result{};
 	RestrictionFailureFlags constraint_restriction_fails{};
@@ -2596,6 +3031,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 
 	auto CollectSuccesses = [&](const std::vector<bool>& flags) {
 		std::vector<size_t> successes;
+		successes.reserve(flags.size());
 		for (size_t i = 0; i < flags.size(); ++i) {
 			if (flags[i]) {
 				successes.push_back(i);
@@ -2681,10 +3117,12 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 					break;
 
 				case 1:
-					new_validity = syntax_ok ? checkExitPoint(*constraints, normalised_route, validity) : validity;
+					new_validity = syntax_ok ? checkExitPoint(*constraints, row.extracted_points, validity) : validity;
 					break;
 
 				case 2:
+					restriction_input_successes = CollectSuccesses(validity);
+
 					new_validity = CheckConstraintRestrictions_(row, *constraints,
 						constraint_restriction_fails,
 						validity);
@@ -2745,10 +3183,18 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	}
 
 	// ----------------------------------------------------------
-	// 10. Output generation
+	// 11. Output generation
 	// ----------------------------------------------------------
 	if (rounds_ran && matched_sid && constraints) {
 		std::vector<size_t> successes = CollectSuccesses(validity);
+
+		const std::string constraint_time_window_text =
+			(round == 7)
+			? MatchingConstraintRestrictionTimeWindowText_(row,*constraints, successes, normalised_route)
+			: "";
+
+		const bool constraint_time_advisory =
+			!constraint_time_window_text.empty();
 
 		auto RestrictionBanOutputForSuccesses = [&]() -> std::string {
 			std::vector<std::string> bans;
@@ -2853,6 +3299,15 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 			return validationResult;
 		}
 		
+		const bool route_failure_due_to_time_restriction =
+			round == 3 &&
+			constraint_restriction_fails.time &&
+			RouteWouldMatchConstraintRejectedByTime_(
+				row,
+				*constraints,
+				restriction_input_successes,
+				normalised_route);
+
 		switch (round) {
 		case 7:
 		{
@@ -2871,11 +3326,17 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 
 		case 6:
 		{
-			if (warn || sid_level_time_advisory) {
+			if (warn || sid_level_time_advisory || constraint_time_advisory) {
+
 				std::string warning_text;
 
 				if (warn) {
-					warning_text = WarningsOutput(*constraints, successes, row.route_points, row.destination, row.rfl);
+					warning_text = WarningsOutput(
+						*constraints,
+						successes,
+						row.route_points,
+						row.destination,
+						row.rfl);
 				}
 
 				if (sid_level_time_advisory) {
@@ -2886,8 +3347,10 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 
 					std::string window_text;
 
-					if (const auto* sidLvlRestrictions = FindArrayMember(*matched_sid, "restrictions")) {
-						window_text = MatchingSidRestrictionTimeWindowText_(row, *sidLvlRestrictions);
+					if (const auto* sidLvlRestrictions =
+						FindArrayMember(*matched_sid, "restrictions")) {
+						window_text =
+							MatchingSidRestrictionTimeWindowText_(row, *sidLvlRestrictions);
 					}
 
 					if (!window_text.empty()) {
@@ -2901,18 +3364,40 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 					}
 				}
 
-				SetField_(validationResult, VF_WARNINGS, "Warnings Present.", warning_text);
+				if (constraint_time_advisory) {
+					if (!warning_text.empty() &&
+						warning_text.back() != ' ') {
+						warning_text += " ";
+					}
+
+					warning_text +=
+						"Valid per filed EOBT. Confirm actual departure time if operating outside "
+						+ constraint_time_window_text + ".";
+				}
+
+				SetField_(validationResult,
+					VF_WARNINGS,
+					"Warnings Present.",
+					warning_text);
 			}
 			else {
-				SetField_(validationResult, VF_WARNINGS, "No Warnings.", "No Warnings.");
+				SetField_(validationResult,
+					VF_WARNINGS,
+					"No Warnings.",
+					"No Warnings.");
 			}
 
 			if (round == 6) {
 				std::string ban_text =
-					BansOutput(*constraints, successes, row.route_points, row.destination, row.rfl);
+					BansOutput(*constraints,
+						successes,
+						row.route_points,
+						row.destination,
+						row.rfl);
 
 				if (has_restriction_ban) {
-					if (!ban_text.empty() && ban_text.find(NO_RESULTS) == std::string::npos) {
+					if (!ban_text.empty() &&
+						ban_text.find(NO_RESULTS) == std::string::npos) {
 						ban_text += " ";
 					}
 					else {
@@ -2922,12 +3407,15 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 					ban_text += restriction_ban_text;
 				}
 
-				SetField_(validationResult, VF_BANS,
+				SetField_(validationResult,
+					VF_BANS,
 					"Route Ban Present.",
 					ban_text);
 			}
 
-			SetField_(validationResult, VF_ODD_EVEN, "Passed",
+			SetField_(validationResult,
+				VF_ODD_EVEN,
+				"Passed",
 				"Passed " + DirectionOutput(*constraints, successes));
 		}
 		[[fallthrough]];
@@ -2997,22 +3485,82 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 		case 3:
 		{
 			if (round == 3 && syntax_ok) {
-				const std::string text =
-					"Failed Route. " +
-					RouteOutputShort_(*constraints, row.destination, row.rfl, row.route_points, 2);
+				if (route_failure_due_to_time_restriction) {
+					std::vector<size_t> matching_route_candidates;
 
-				SetField_(validationResult, VF_ROUTE, "Failed Route.", text);
+					for (size_t idx : restriction_input_successes) {
+						if (idx >= constraints->Size()) {
+							continue;
+						}
 
-				for (const auto& advisory : route_advisories) {
-					LOG_TRACE("Route advisory for '{}': {}", row.callsign, advisory);
+						const auto& constraint = (*constraints)[idx];
+						const auto* routeArr = FindArrayMember(constraint, "route");
+
+						if (!routeArr || routeArr->Empty()) {
+							continue;
+						}
+
+						if (routeContains(normalised_route, *routeArr, nullptr)) {
+							matching_route_candidates.push_back(idx);
+						}
+					}
+
+					const std::string text =
+						"Failed " +
+						RestrictionsOutput(*matched_sid,
+							row,
+							false,
+							true,
+							false,
+							matching_route_candidates);
+
+					SetField_(validationResult,
+						VF_RESTRICTIONS,
+						"Failed Restrictions.",
+						text);
 				}
+				else {
+					std::string text = "Failed Route. ";
 
+					const RouteMismatchDetail mismatch =
+						FindBestRouteMismatch_(*constraints,
+							row.destination,
+							row.rfl,
+							normalised_route);
+
+					const std::string mismatch_text = RouteMismatchText_(mismatch);
+
+					if (!mismatch_text.empty()) {
+						text += mismatch_text + " ";
+					}
+
+					text += RouteOutputShort_(*constraints,
+						row.destination,
+						row.rfl,
+						row.route_points,
+						2);
+
+					SetField_(validationResult,
+						VF_ROUTE,
+						"Failed Route.",
+						text);
+
+					for (const auto& advisory : route_advisories) {
+						LOG_TRACE("Route advisory for '{}': {}", row.callsign, advisory);
+					}
+				}
 			}
 
-			SetField_(validationResult, VF_RESTRICTIONS,
+			if (!route_failure_due_to_time_restriction) {
+				SetField_(validationResult,
+					VF_RESTRICTIONS,
+					"Passed",
+					"SID Restrictions: Passed.");
+			}
+
+			SetField_(validationResult,
+				VF_SUFFIX,
 				"Passed",
-				"SID Restrictions: Passed.");
-			SetField_(validationResult, VF_SUFFIX, "Passed",
 				"Valid " + SuffixOutput(*matched_sid, successes));
 		}
 		[[fallthrough]];
@@ -3025,6 +3573,11 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 					SetField_(validationResult, VF_SUFFIX, "Failed Suffix Restriction.", text);
 				}
 				else {
+					const std::vector<size_t>& restriction_output_candidates =
+						!restriction_input_successes.empty()
+						? restriction_input_successes
+						: successes;
+
 					const std::string text =
 						"Failed " +
 						RestrictionsOutput(*matched_sid,
@@ -3032,17 +3585,17 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 							constraint_restriction_fails.type,
 							constraint_restriction_fails.time,
 							constraint_restriction_fails.banned,
-							successes);
+							restriction_output_candidates);
 
 					SetField_(validationResult, VF_RESTRICTIONS, "Failed Restrictions.", text);
 					SetField_(validationResult, VF_SUFFIX, "Passed",
-						"Valid " + SuffixOutput(*matched_sid, successes));
+						"Valid " + SuffixOutput(*matched_sid, restriction_output_candidates));
 				}
 			}
 
 			if (syntax_ok) {
 				SetField_(validationResult, VF_EXIT_POINT, "Passed",
-					"Passed " + ExitPointOutput(airport, row.route_points));
+					"Passed " + ExitPointOutput(airport, row.extracted_points));
 			}
 		}
 		[[fallthrough]];
@@ -3051,7 +3604,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 		{
 			if (round == 1 && syntax_ok) {
 				const std::string text =
-					"Failed " + ExitPointOutput(airport, row.route_points);
+					"Failed " + ExitPointOutput(airport, row.extracted_points);
 				SetField_(validationResult, VF_EXIT_POINT, "Failed Exit Point.", text);
 			}
 
@@ -3107,7 +3660,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	}
 
 	// ----------------------------------------------------------
-	// 11. Fill any remaining unset fields
+	// 12. Fill any remaining unset fields
 	// ----------------------------------------------------------
 	SetFieldIfUnset_(validationResult, VF_ORIGIN, "Not Checked",
 		"Origin not checked due to earlier validation gating.");
@@ -3166,7 +3719,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 
 	LOG_DEBUG("ValidateFlightPlan_: callsign='{}' result='{}' status={} sid='{}' dest='{}' route='{}'",
 		row.callsign,
-		mnemonic,
+		SummaryHeadingFromMnemonic_(mnemonic),
 		static_cast<int>(validationResult.status),
 		validationResult.fields[VF_SID].summary,
 		validationResult.fields[VF_DESTINATION].summary,
@@ -3429,6 +3982,8 @@ bool CVFPCPlugin::NormaliseAndValidateRouteSyntax_(std::vector<std::string>& rou
 	}
 	return true;
 }
+
+
 
 bool CVFPCPlugin::IsIfrFlightPlan_(const EuroScopePlugIn::CFlightPlan& flightPlan) const {
 	std::string fpType{ flightPlan.GetFlightPlanData().GetPlanType() };
@@ -3807,13 +4362,23 @@ FlightPlanRow CVFPCPlugin::BuildFlightPlanRow_(const EuroScopePlugIn::CFlightPla
 	row.is_ifr = IsIfrFlightPlan_(flightPlan);
 	row.aircraft_type = flightPlan.GetFlightPlanData().GetAircraftFPType();
 	row.engine_type = flightPlan.GetFlightPlanData().GetEngineType();
+
+	// NEW: EuroScope extracted/assigned departure runway
+	row.departure_rwy = to_upper(flightPlan.GetFlightPlanData().GetDepartureRwy());
+
 	const auto parsed = CParseFlightPlanData_(flightPlan);
-	row.eobt = parsed.eobt;
+	row.eobt = NormaliseEobt_(parsed.eobt);
 	row.origin = parsed.origin;
 	row.destination = parsed.destination;
 	row.rfl = parsed.rfl;
 	row.route = parsed.rawroute;
 	row.route_points = parsed.route;
+	row.extracted_points = parsed.points;
+
+	for (auto& point : row.extracted_points) {
+		point = to_upper(point);
+	}
+
 	row.sid = parsed.sid;
 	row.sid_suffix = parsed.sid_suffix;
 	row.first_waypoint = parsed.first_wp;
@@ -3828,11 +4393,16 @@ FlightPlanRow CVFPCPlugin::BuildFlightPlanRow_(const EuroScopePlugIn::CFlightPla
 
 string CVFPCPlugin::BuildFlightPlanFingerprint_(const FlightPlanRow& row) const
 {
+	const std::string extracted_points =
+		fmt::format("{}", fmt::join(row.extracted_points, " "));
+
 	return row.callsign + "|" +
 		row.eobt + "|" +
 		row.origin + "|" +
+		row.departure_rwy + "|" +
 		row.destination + "|" +
 		row.route + "|" +
+		extracted_points + "|" +
 		row.sid + "|" +
 		row.sid_suffix + "|" +
 		row.first_waypoint + "|" +
@@ -3869,9 +4439,10 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 			tracked.last_row = row;
 
 			LOG_INFO(
-				"Flight plan first seen: callsign='{}' origin='{}' dest='{}' eobt='{}' sid='{}' route='{}' rfl={} aircraft='{}' type='{}'",
+				"Flight plan first seen: callsign='{}' origin='{}' departure_rwy='{}' destination='{}' eobt='{}' sid='{}' route='{}' rfl={} aircraft='{}' type='{}'",
 				row.callsign,
 				row.origin,
+				row.departure_rwy,
 				row.destination,
 				row.eobt,
 				row.sid,
@@ -4138,6 +4709,7 @@ bool CVFPCPlugin::FieldIndicatesFailure_(const ValidationResult::Field& field) c
 {
 	if (field.summary == "ERR") return true;
 	if (field.summary.rfind("Failed", 0) == 0) return true;
+	if (field.summary == "Invalid Syntax") return true;
 	if (field.summary == "Route Ban Present.") return true;
 	if (field.summary == "No SIDs") return true;
 	if (field.summary == "SID Required") return true;
@@ -4339,6 +4911,53 @@ bool CVFPCPlugin::MatchingSidRestrictionHasTimeWindow_(
 	return false;
 }
 
+static std::string FormatWindowAsUtc(const std::string& start, const std::string& end)
+{
+	auto toMinutes = [](const std::string& hhmm) -> int {
+		return std::stoi(hhmm.substr(0, 2)) * 60 +
+			std::stoi(hhmm.substr(2, 2));
+		};
+
+	auto fromMinutes = [](int mins) -> std::string {
+		while (mins < 0) mins += 24 * 60;
+		mins %= 24 * 60;
+
+		const int h = mins / 60;
+		const int m = mins % 60;
+
+		return fmt::format("{:02}:{:02}", h, m);
+		};
+
+	// UK winter: local time is UTC.
+	// UK summer/BST: local time is UTC+1.
+	//
+	// Temporary simple version:
+	// Use current local offset from the system clock.
+	const std::time_t now = std::time(nullptr);
+
+	std::tm local_tm{};
+	std::tm utc_tm{};
+
+	localtime_s(&local_tm, &now);
+	gmtime_s(&utc_tm, &now);
+
+	const int local_minutes =
+		local_tm.tm_hour * 60 + local_tm.tm_min;
+
+	const int utc_minutes =
+		utc_tm.tm_hour * 60 + utc_tm.tm_min;
+
+	int offset = local_minutes - utc_minutes;
+
+	if (offset > 12 * 60) offset -= 24 * 60;
+	if (offset < -12 * 60) offset += 24 * 60;
+
+	const int start_utc = toMinutes(start) - offset;
+	const int end_utc = toMinutes(end) - offset;
+
+	return fromMinutes(start_utc) + "-" + fromMinutes(end_utc);
+}
+
 std::string CVFPCPlugin::FormatRestrictionTimeWindow_(
 	const rapidjson::Value& restriction) const
 {
@@ -4367,9 +4986,18 @@ std::string CVFPCPlugin::FormatRestrictionTimeWindow_(
 		return {};
 	}
 
-	return start.substr(0, 2) + ":" + start.substr(2, 2) +
-		" - " +
-		end.substr(0, 2) + ":" + end.substr(2, 2);
+	const std::string local_window = start.substr(0, 2) + ":" + start.substr(2, 2) +
+		"-" +
+		end.substr(0, 2) + ":" + end.substr(2, 2) + " local";
+	
+	const std::string utc_window = FormatWindowAsUtc(start, end);
+
+	if (utc_window.empty()) {
+		return local_window;
+	} 
+	else {
+		return local_window + " (" + utc_window + "z)";
+	}
 }
 
 std::string CVFPCPlugin::MatchingSidRestrictionTimeWindowText_(
@@ -4394,6 +5022,100 @@ std::string CVFPCPlugin::MatchingSidRestrictionTimeWindowText_(
 		const std::string window = FormatRestrictionTimeWindow_(restriction);
 		if (!window.empty()) {
 			return window;
+		}
+	}
+
+	return {};
+}
+
+std::string CVFPCPlugin::MatchingConstraintRestrictionTimeWindowText_(
+	const FlightPlanRow& row,
+	const rapidjson::Value& constraints,
+	const std::vector<size_t>& successes,
+	const std::vector<std::string>& normalised_route) const
+{
+	if (!constraints.IsArray() || successes.empty()) {
+		return {};
+	}
+
+	for (size_t idx : successes) {
+		if (idx >= constraints.Size()) {
+			continue;
+		}
+
+		const auto& constraint =
+			constraints[static_cast<rapidjson::SizeType>(idx)];
+
+		if (!constraint.IsObject()) {
+			continue;
+		}
+
+		const auto* restrictions = FindArrayMember(constraint, "restrictions");
+
+		if (!restrictions || restrictions->Empty()) {
+			continue;
+		}
+
+		const auto restriction_result =
+			EvaluateConstraintRestrictions_(row, *restrictions);
+
+		if (!restriction_result.passed) {
+			continue;
+		}
+
+		const auto* routeArr = FindArrayMember(constraint, "route");
+
+		if (!routeArr || routeArr->Empty()) {
+			continue;
+		}
+
+		bool exact_route_match = false;
+
+		for (const auto& routeVal : routeArr->GetArray()) {
+			if (!routeVal.IsString()) {
+				continue;
+			}
+
+			std::vector<std::string> expected = split(routeVal.GetString(), ' ');
+
+			for (auto& token : expected) {
+				to_upper(token);
+			}
+
+			if (expected.size() != normalised_route.size()) {
+				continue;
+			}
+
+			bool same = true;
+
+			for (size_t i = 0; i < expected.size(); ++i) {
+				if (expected[i] != normalised_route[i]) {
+					same = false;
+					break;
+				}
+			}
+
+			if (same) {
+				exact_route_match = true;
+				break;
+			}
+		}
+
+		if (!exact_route_match) {
+			continue;
+		}
+
+		for (const auto& restriction : restrictions->GetArray()) {
+			if (!restriction.IsObject()) {
+				continue;
+			}
+
+			const std::string window =
+				FormatRestrictionTimeWindow_(restriction);
+
+			if (!window.empty()) {
+				return window;
+			}
 		}
 	}
 
@@ -4638,6 +5360,11 @@ std::string CVFPCPlugin::RestrictionsOutput(const rapidjson::Value& sid_ele,
 {
 	std::vector<std::vector<std::string>> rests{};
 
+	const std::string sid_label =
+		row.sid.empty()
+		? "SID Restrictions"
+		: fmt::format("SID Restrictions for {}", row.sid);
+
 	if (const auto* sidRestrictions = FindArrayMember(sid_ele, "restrictions")) {
 		auto temp = RestrictionsSingle(*sidRestrictions, row, check_type, check_time, check_ban);
 		rests.insert(rests.end(), temp.begin(), temp.end());
@@ -4703,9 +5430,14 @@ std::string CVFPCPlugin::RestrictionsOutput(const rapidjson::Value& sid_ele,
 		}
 
 		if (check_time && !rests[i][1].empty()) {
-			if (!temp.empty()) temp += " between ";
-			else temp += "Between ";
-			temp += rests[i][1];
+			if (!temp.empty()) {
+				temp += " between ";
+				temp += rests[i][1];
+			}
+			else {
+				temp += "This route is only permitted ";
+				temp += rests[i][1];
+			}
 		}
 
 		if (!temp.empty()) {
@@ -4714,11 +5446,36 @@ std::string CVFPCPlugin::RestrictionsOutput(const rapidjson::Value& sid_ele,
 	}
 
 	if (out.empty()) {
-		return "SID Restrictions: " + std::string(NO_RESULTS) + ".";
+		if (check_ban) {
+			return sid_label + ": Route is not permitted by restriction.";
+		}
+
+		if (check_type) {
+			if (!row.aircraft_type.empty()) {
+				return fmt::format(
+					"{}: {} is not permitted on this SID.",
+					sid_label,
+					row.aircraft_type);
+			}
+
+			return fmt::format(
+				"{}: Aircraft type is not permitted on this SID.",
+				sid_label);
+		}
+
+		if (check_time) {
+			return fmt::format(
+				"{}: Filed EOBT is outside the permitted time window.",
+				sid_label);
+		}
+
+		return fmt::format(
+			"{}: Restriction not satisfied.",
+			sid_label);
 	}
 
 	out.erase(out.size() - RESULT_SEP.size());
-	return "SID Restrictions: " + out + ".";
+	return sid_label + ": " + out + ".";
 }
 
 std::vector<std::vector<std::string>> CVFPCPlugin::RestrictionsSingle(
@@ -4735,6 +5492,7 @@ std::vector<std::vector<std::string>> CVFPCPlugin::RestrictionsSingle(
 	}
 
 	std::string fallback_time_window;
+	std::string fallback_alt_text;
 
 	for (rapidjson::SizeType i = 0; i < restrictions.Size(); ++i) {
 		const auto& r = restrictions[i];
@@ -4743,9 +5501,29 @@ std::vector<std::vector<std::string>> CVFPCPlugin::RestrictionsSingle(
 			continue;
 		}
 
-		fallback_time_window = FormatRestrictionTimeWindow_(r);
+		if (fallback_time_window.empty()) {
+			fallback_time_window = FormatRestrictionTimeWindow_(r);
+		}
 
-		if (!fallback_time_window.empty()) {
+		if (fallback_alt_text.empty()) {
+			if (const auto* altArr = FindArrayMember(r, "alt");
+				altArr && !altArr->Empty()) {
+
+				for (rapidjson::SizeType j = 0; j < altArr->Size(); ++j) {
+					if (!(*altArr)[j].IsString()) {
+						continue;
+					}
+
+					if (!fallback_alt_text.empty()) {
+						fallback_alt_text += RESULT_SEP;
+					}
+
+					fallback_alt_text += (*altArr)[j].GetString();
+				}
+			}
+		}
+
+		if (!fallback_time_window.empty() && !fallback_alt_text.empty()) {
 			break;
 		}
 	}
@@ -4760,34 +5538,49 @@ std::vector<std::vector<std::string>> CVFPCPlugin::RestrictionsSingle(
 
 		if (check_type) {
 			if (const auto* typesArr = FindArrayMember(restriction, "types")) {
-				std::string altText;
+				const bool type_matches =
+					RestrictionTypeSelectorMatches_(*typesArr, row);
 
-				if (const auto* altArr = FindArrayMember(restriction, "alt");
-					altArr && !altArr->Empty()) {
+				// Only report a type failure when this restriction is genuinely
+				// a type exclusion. If the type does not match but this restriction
+				// is only carrying alternative-route text, do not report it as:
+				// "A321 is not permitted on this SID".
+				if (!type_matches) {
+					const bool has_time_window =
+						!FormatRestrictionTimeWindow_(restriction).empty();
 
-					for (rapidjson::SizeType j = 0; j < altArr->Size(); ++j) {
-						if (!(*altArr)[j].IsString()) {
-							continue;
-						}
-
-						if (!altText.empty()) {
-							altText += RESULT_SEP;
-						}
-
-						altText += (*altArr)[j].GetString();
+					if (!has_time_window) {
+						continue;
 					}
 				}
 
-				if (!altText.empty()) {
-					this_rest[0] = fmt::format(
-						"Use {} instead because {} is not permitted on this SID",
-						altText,
-						row.aircraft_type);
-				}
-				else {
-					this_rest[0] = fmt::format(
-						"{} is not permitted on this SID",
-						row.aircraft_type);
+				if (!type_matches) {
+					std::string altText;
+
+					if (const auto* altArr = FindArrayMember(restriction, "alt");
+						altArr && !altArr->Empty()) {
+
+						for (rapidjson::SizeType j = 0; j < altArr->Size(); ++j) {
+							if ((*altArr)[j].IsString()) {
+								if (!altText.empty()) {
+									altText += RESULT_SEP;
+								}
+								altText += (*altArr)[j].GetString();
+							}
+						}
+					}
+
+					if (!altText.empty()) {
+						this_rest[0] = fmt::format(
+							"Use {} instead because {} is not permitted on this SID",
+							altText,
+							row.aircraft_type);
+					}
+					else {
+						this_rest[0] = fmt::format(
+							"{} is not permitted on this SID",
+							row.aircraft_type);
+					}
 				}
 			}
 		}
@@ -4814,17 +5607,25 @@ std::vector<std::vector<std::string>> CVFPCPlugin::RestrictionsSingle(
 				}
 			}
 
+			if (altText.empty()) {
+				altText = fallback_alt_text;
+			}
+
+			std::string window = FormatRestrictionTimeWindow_(restriction);
+
+			if (window.empty()) {
+				window = fallback_time_window;
+			}
+
 			if (!altText.empty()) {
-				std::string window = FormatRestrictionTimeWindow_(restriction);
-
-				if (window.empty()) {
-					window = fallback_time_window;
-				}
-
 				this_rest[0] = fmt::format(
-					"Use {} instead because this SID is only available during {} Zulu",
+					"Use {} instead because {} on this SID is only permitted {}",
 					altText,
-					window.empty() ? "the permitted time window (Zulu)" : window);
+					row.aircraft_type.empty() ? "this aircraft type" : row.aircraft_type,
+					window);
+			}
+			else if (!window.empty()) {
+				this_rest[1] = window;
 			}
 		}
 		else if (check_type) {
@@ -5833,10 +6634,6 @@ void CVFPCPlugin::ShowConfigStatus_()
 {
 	SendToConsole(vfpc::urgent, "VFPC config status");
 
-	std::string view_text = fmt::format("Console results view: {}",
-		(console_results_view_ == ResultsView::Full) ? "FULL" : "SUMMARY");
-	SendToConsole(view_text.c_str(), false);
-
 	if (plugin_config_.config_warnings.empty()) {
 		SendToConsole("Config warnings: none");
 		return;
@@ -5854,7 +6651,8 @@ void CVFPCPlugin::ShowConfigStatus_()
 //Handles console commands
 bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 	try {
-		//Restart Automatic Data Loading
+#ifdef _DEBUG
+		//Restart Automatic Data Loading - developer/debug builds only
 		if (startsWith((COMMAND_PREFIX + LOAD_COMMAND).c_str(), sCommandLine))
 		{
 			fileLoad = false;
@@ -5872,7 +6670,7 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 			getSids();
 			return true;
 		}
-		//Disable API and load from Sid.json file
+		//Disable API and load from Sid.json file - developer/debug builds only
 		else if (startsWith((COMMAND_PREFIX + FILE_COMMAND).c_str(), sCommandLine))
 		{
 			autoLoad = false;
@@ -5884,21 +6682,9 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 			getSids();
 			return true;
 		}
-		// Set console output to full validation details
-		else if (startsWith((COMMAND_PREFIX + "full").c_str(), sCommandLine)) {
-			console_results_view_ = ResultsView::Full;
-			SendToConsole("Console results view set to FULL.");
-			LOG_INFO("Console results view set to FULL");
-			return true;
-		}
-		// Set console output to summary validation details
-		else if (startsWith((COMMAND_PREFIX + "summary").c_str(), sCommandLine)) {
-			console_results_view_ = ResultsView::Summary;
-			SendToConsole("Console results view set to SUMMARY.");
-			LOG_INFO("Console results view set to SUMMARY");
-			return true;
-		}
-		else if (startsWith((COMMAND_PREFIX + "config").c_str(), sCommandLine)) {
+		else
+#endif
+		if (startsWith((COMMAND_PREFIX + CONFIG_COMMAND).c_str(), sCommandLine)) {
 			ShowConfigStatus_();
 			return true;
 		}
@@ -5914,6 +6700,7 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 
 			SendToConsole("VFPC logging set to TRACE");
 			LOG_INFO("Runtime log level changed to TRACE");
+			return true;
 		}
 		else if (startsWith((COMMAND_PREFIX + NODEBUG_COMMAND).c_str(), sCommandLine)) {
 			auto lg = spdlog::default_logger();

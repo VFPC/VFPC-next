@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="vfpc-header">
+    <a class="vfpc-brand" href="{{ nav.homepage.url|url }}">
+        <img src="{{ 'images/vfpc-logo.png'|url }}" alt="vFPC">
+    </a>
+
+    <nav class="vfpc-nav" aria-label="Primary navigation">
+        <a href="{{ nav.homepage.url|url }}">Home</a>
+
+        <a href="https://github.com/VFPC/VFPC/releases/latest"
+           target="_blank"
+           rel="noopener">Download</a>
+
+        <a href="https://discord.gg/ff8fsG3k"
+           target="_blank"
+           rel="noopener">Discord</a>
+    </nav>
+</header>
+
+<div class="vfpc-doc-content">
+    {{ super() }}
+    <nav class="vfpc-page-nav" aria-label="Documentation navigation">
+    {% if page.previous_page %}
+    <a class="vfpc-page-nav__previous"
+       href="{{ page.previous_page.url|url }}">
+        <span>Previous</span>
+        <strong>← {{ page.previous_page.title }}</strong>
+    </a>
+    {% endif %}
+
+    {% if page.next_page %}
+    <a class="vfpc-page-nav__next"
+       href="{{ page.next_page.url|url }}">
+        <span>Next</span>
+        <strong>{{ page.next_page.title }} →</strong>
+    </a>
+    {% endif %}
+</nav>
+</div>
+{% endblock %}

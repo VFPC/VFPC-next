@@ -1,0 +1,21 @@
+site_name: vFPC User Guide
+site_description: User documentation for the vFPC EuroScope plugin
+
+theme:
+  name: mkdocs
+  custom_dir: overrides
+
+nav:
+  - Home: index.md
+  - Installation and Setup: installation.md
+  - Using vFPC: using-vfpc.md
+  - Validation Reference: validation-results.md
+  - Troubleshooting and Limitations: troubleshooting.md
+  - Reporting Issues: reporting-issues.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  
+extra_css:
+  - stylesheets/vfpc.css
