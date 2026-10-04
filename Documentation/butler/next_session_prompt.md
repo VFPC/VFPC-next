@@ -1,102 +1,111 @@
 # VFPC-next — Next Session Prompt
 
-_Last updated: 2026-04-11 (session 93 — OutJsonSeedTests; PR #5 merged; SidApplicability cleanup)_
+_Last updated: 2026-10-04 (session: sidecar harness retired; v4.0.0.0 release PR opened for Peter's review)_
+
+---
+
+## Important: these docs are for AI-session continuity only
+
+Peter does not read or maintain `Documentation/butler/`. This directory exists so an AI
+assistant picking up this repo in a future session has accurate state without re-deriving
+it from scratch. Keep it honest and current — if it goes stale again, the next session
+will waste time rediscovering what's below.
 
 ---
 
 ## Current State
 
-**`main`:** `dcaad1c2` — clean. Contains `vfpc_check.exe` CLI (PR #9), SID applicability fix
-(PR #5), and `SidApplicability.hpp` `using namespace` cleanup.
+**`main`:** `290b0c61` — clean. This is now **just Peter's production VFPC plugin repo**.
+The sidecar verification lane (`VFPC_Tests` GTest harness, `VFPC_Check` CLI) described in
+older entries below was **removed 2026-10-04** (PR #26) — it was never wired into
+`VFPC.sln`, had no CI build step, and per J. Kino was "never used." Do not resurrect it
+without explicit instruction.
 
-**`test-harness/main`:** Active sidecar harness lane. **125/125 GTest tests passing.**
-New suite: `OutJsonSeedTests` — loads `fixtures/out_json_seeds.json`, drives each confirmed
-seed through `validateFlightPlan()`, asserts `overall_pass == true`. User guide at
-`Documentation/out-json-seed-tests.md`.
+**`v4.0.0-Beta3` (open PR #27, awaiting Peter's review):** Peter's **v4.0.0.0 release
+candidate** (`245b3bbc`, pushed 2026-10-04 ~11:34 UK time). Summary of what it does:
+1. Trims `src/` to only files actually part of the build (removed several now-dead headers:
+   `SidApplicability.hpp`, `ValidatorCore.hpp`, `RouteSyntax.hpp`, `ConstraintChecks.hpp`,
+   `FlightPlanRow.hpp`, `SidLookup.hpp`, `UrlData.h/.cpp`).
+2. `README.md` rewritten to build-only instructions; full MkDocs User Guide site added
+   under `Documentation/docs/`.
+3. Fixed a config-loader message bug (was reporting "default value applied" when the real
+   issue was an unknown field; now names the unknown field).
+4. Removed commented-out code; resource/version files updated to show DEBUG builds in
+   DLL Properties->Details; version bumped to `v4.0.0.0`, all beta references removed.
 
-**Python harness:** `C:\Temp\vfpc_plugin_test.py` — 60 seeds, mutations clean, **0 wrong outcomes**.
-Seeds now store `first_waypoint` and `sid_suffix` using the same normalization as the plugin.
+**Do not merge PR #27 without Peter's sign-off** — he's the requested reviewer and this is
+the actual release artifact, not sidecar work. Verified no merge conflicts with `main` via
+`git merge-tree`.
 
-**PR #3 (Peter's rewrite):** Open, explicitly unfinished. Peter's own note: validation logic
-"requires testing and debugging." Do not merge. See PR #3 decision note below.
-
----
-
-## What Was Completed
-
-### Session 93 (2026-04-11)
-- **`OutJsonSeedTests.cpp`** added to `test-harness/main` (issue #8 closed):
-  - Loads `fixtures/out_json_seeds.json` + live `out.json`, runs each seed through
-    `ValidatorCore::validateFlightPlan()`, asserts `overall_pass == true`
-  - Fixture validation enforced in loader: all replay-contract fields required; missing
-    `flight_plan` or wrongly-typed fields fail fast in `SeedsFileLoads`, not silently
-  - `rowFromSeed()` is unconditional reads — no synthetic fallbacks
-  - User guide: `Documentation/out-json-seed-tests.md`
-- **PR #5 merged** (`ari/fix-sid-applicability` → `main`):
-  - `SidApplicability.hpp` added — `ShouldEvaluateConstraints()` fixes RST-for-jets bug
-  - One-line change in `analyzeFP.cpp` at line 1862
-  - Issue #4 closed (auto-closed by merge)
-- **`SidApplicability.hpp` cleanup** (`dcaad1c2`):
-  - Removed `using namespace rapidjson` from header; all `Value`/`SizeType` uses now
-    explicitly qualified as `rapidjson::Value` / `rapidjson::SizeType`
-- **Python harness updated**: `first_waypoint` and `sid_suffix` now stored in seed
-  `flight_plan` using same derivation rules as `analyzeFP.cpp` (alphabetic SID prefix,
-  last-char suffix, EGLL/CHK special case)
-- **Issues #7, #10** closed by Peter directly (his fixes described in issue comments;
-  not yet pushed to any PR — Peter to push when ready)
-
-### Session 92 (2026-04-11)
-- Hardened mutation guards in `vfpc_plugin_test.py`; added `--verbose` flag
-
-### Session 91 (2026-04-10)
-- `vfpc_check.exe` CLI built and merged via PR #9; Python harness created
+**PR #3 (`peter-clean-port-2026-04-03`, Peter's earlier rewrite attempt):** **Closed, never
+merged.** Superseded entirely by the `v4.0.0-Beta3` line (Builds 0–6, now the RC in PR #27).
+The old "PR #3 decision" guidance below is historical only — do not act on it.
 
 ---
 
-## PR #3 — Decision for Next Session
+## What Was Completed (2026-10-04 session)
 
-**What it is:** Peter's full plugin rewrite — spdlog logging, config file, caching
-(airport/version data fetched once per session), new validation approach that continues
-past first error, new output format. Peter's own note: validation logic "requires testing
-and debugging — probably the last area of significant development."
-
-**Current state:** Open, unfinished, not based on current `main` (misses PR #5 fix).
-
-**Decision:** Do not merge. Leave as Peter's working branch. When he says it's ready:
-1. He must rebase onto `main` — the conflict will be in `analyzeFP.cpp` (our PR #5
-   change at line 1862 vs his validation rewrite)
-2. Before merging, confirm his new validation logic handles the SID applicability case:
-   ask "what happens when a jet hits a SID with only a non-jet restriction at the SID
-   root — does it fall through to constraint evaluation?"
-3. If his rewrite already handles it, the rebase conflict is mechanical. If not, he
-   needs to incorporate `SidApplicability::ShouldEvaluateConstraints`.
+- **PR #26 merged** (`chore/remove-unused-test-harness` → `main`): removed `VFPC_Tests/`,
+  `VFPC_Check/`, and the now-empty `.gitmodules` (the two vendored submodules —
+  googletest, rapidjson — were under `VFPC_Tests/third_party/`). Confirmed via direct
+  inspection that neither project was referenced by `VFPC.sln` or any CI workflow before
+  removing.
+- **PR #27 opened** (`v4.0.0-Beta3` → `main`): Peter's release candidate, requested his
+  review before merge.
 
 ---
 
 ## Immediate Next Steps
 
-1. **PR #3 conversation with Peter** — explain the above; let him drive timing
-2. **Peter's fixes for #10 and #7** — he fixed both locally; let him push when ready
-3. When Peter confirms backup refs no longer needed, remove:
-   - `backup/main-pre-recovery-2026-04-03`
-   - `backup/test-harness-pre-rebase-2026-04-03`
+1. **Wait for Peter's review on PR #27.** Do not merge in the meantime.
+2. Once #27 merges, this doc's "Current State" section should be refreshed to reflect the
+   shipped `v4.0.0.0` tag/release.
+3. Not yet done, flagged but out of scope for the 2026-10-04 session — only act on these if
+   explicitly asked:
+   - `docs/test-harness.md` and `docs/vfpc-next-supplement.md` still describe the removed
+     sidecar harness.
+   - A number of stale branches exist (`backup/main-pre-recovery-2026-04-03`,
+     `backup/refactor-pre-legacy-prune-2026-04-20`, `cleanup/pre-trash-removal-2026-04-13`,
+     `cleanup/recovered-clean-main-2026-04-13`, `test-harness/main`,
+     `peter-clean-port-2026-04-03` (closed-PR branch), and a handful of Peter's own WIP
+     branches: `Refactor-of-FP-validation-code`, `ari/fix-sid-applicability`,
+     `fix-analyzefp-after-merge`, `fix/route-selector-in-restrictions`,
+     `fix/route-selector-minimal`). Per the local-git-cleanliness rule, do not delete any
+     of these without J. Kino's explicit confirmation — several may be Peter's active work.
+   - Issue **#6** (remove hard-wired `vcpkg.exe` dependency) is the only open GitHub issue;
+     Peter owns it, parked.
 
 ## Parked (do not start without explicit reason)
 
-- **Issue #6 (vcpkg cleanup):** Peter owns vcpkg direction; do not push
-- **Issue #1 (bootstrap harness on Peter's line):** superseded by current harness work
-- **Broader dependency / logger cleanup:** intentionally not started; do not resume
+- **Issue #6 (vcpkg cleanup):** Peter owns vcpkg direction; do not push.
+- **Stale branch cleanup** (see list above): needs J. Kino confirmation per repo rules,
+  not an AI judgment call.
 
 ---
 
 ## Operating Rules for This Repo
 
-- This is a **sidecar verification lane**. Do not let it drift into "fix Peter's branch".
-- Do not merge PR #3 without Peter confirming it's ready and the applicability fix is present.
-- Add new GTest fixture cases as JSON-only edits to `VFPC_Tests/fixtures/constraint_cases.json`
-  — no recompile needed.
-- Refresh seeds after a new AIRAC: run `vfpc_plugin_test.py`, copy `vfpc_seeds.json` to
-  `VFPC_Tests/fixtures/out_json_seeds.json`, rebuild and run.
-- The Python harness lives at `C:\Temp\vfpc_plugin_test.py`; not in the repo.
-  If it needs long-term preservation, move to `VFPC-next/scripts/` and commit.
+- This repo is **Peter's production plugin**, not a Hub-owned verification lane anymore.
+  The sidecar GTest/CLI experiment is retired; do not recreate it without explicit
+  instruction.
+- Peter does not use `Documentation/butler/`. Keep these docs accurate for AI-session
+  handoff, but do not expect Peter to read or act on anything written here.
+- Use PRs for everything landing on `main`, per the repo-wide `vfpc-use-prs` rule. Request
+  Peter as reviewer on anything touching the actual plugin release (as done for #27).
 - When in doubt about plugin behavior, read `src/analyzeFP.cpp` — that is the ground truth.
+
+---
+
+## Historical Note (superseded — kept for audit trail only)
+
+Everything below this line describes the 2026-04 sidecar verification lane
+(`VFPC_Tests`/`VFPC_Check`), which was removed 2026-10-04 (PR #26). Do not act on it; it
+is preserved so a future session can see why those files existed if the question ever
+comes up. Full session-by-session detail is in `session_status_summary.md`.
+
+- `VFPC_Tests` was a GTest harness (125/125 passing at its peak) extracting pure-logic
+  seams (`ValidatorCore.hpp`, `RouteSyntax.hpp`, `SidLookup.hpp`, `ConstraintChecks.hpp`,
+  `FlightPlanRow.hpp`) from the plugin for fixture-driven testing.
+- `VFPC_Check` was an offline CLI (`vfpc_check.exe`) built for Peter to test routes without
+  EuroScope; per J. Kino, this was never actually used.
+- Neither was ever added to `VFPC.sln`, so neither was ever part of Peter's real build.

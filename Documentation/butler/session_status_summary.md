@@ -2,7 +2,41 @@
 
 ---
 
+### Session 2026-10-04: sidecar harness retired; v4.0.0.0 release PR opened for Peter's review
+
+**Scope:** VFPC-next `main`
+
+**Context:** Peter pushed `245b3bbc` ("VFPC Release Candidate v4.0.0.0") to `v4.0.0-Beta3`
+around 11:34 UK time. Before opening a release PR, found that his cleanup (trimming `src/`
+to only build-relevant files) deletes several headers — `SidApplicability.hpp`,
+`ValidatorCore.hpp`, `RouteSyntax.hpp`, `ConstraintChecks.hpp`, `FlightPlanRow.hpp`,
+`SidLookup.hpp`, `UrlData.h/.cpp` — that the dormant `VFPC_Tests`/`VFPC_Check` sidecar
+projects (see all session entries below this one) still referenced by path. Confirmed via
+direct inspection that neither sidecar project was ever wired into `VFPC.sln` or any CI
+workflow, and J. Kino confirmed the harness was never actually used.
+
+**PR #26 merged** (`chore/remove-unused-test-harness` → `main`): removed `VFPC_Tests/`,
+`VFPC_Check/`, and the resulting empty `.gitmodules` (googletest + rapidjson vendor
+submodules). This landed first so the release PR wouldn't carry forward dangling
+references to the deleted headers.
+
+**PR #27 opened** (`v4.0.0-Beta3` → `main`, "VFPC Release Candidate v4.0.0.0"): Peter
+requested as reviewer. Not merged — waiting on his sign-off.
+
+**Butler docs rewritten:** `next_session_prompt.md` and `project_status.md` updated to
+drop the now-retired sidecar-lane framing and reflect current reality (this repo is just
+Peter's production plugin; these docs exist solely for AI-session continuity, Peter does
+not use them). This file's entries below (sessions 91–93) are preserved as historical
+record of why `VFPC_Tests`/`VFPC_Check` existed — they describe removed code and should
+not be treated as current state.
+
+---
+
 ### Session 2026-04-11 (session 93): OutJsonSeedTests; PR #5 merged; SidApplicability cleanup
+
+> **Note (2026-10-04): everything in this entry and the two below it describes the
+> `VFPC_Tests`/`VFPC_Check` sidecar lane, which was removed in PR #26. Historical record
+> only — do not act on anything here.**
 
 **Scope:** VFPC-next `main` + `test-harness/main`
 
