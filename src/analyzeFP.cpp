@@ -7,7 +7,6 @@
 #include "PluginConfig.h"
 #include "Utils.h"
 #include "Log.h"
-#include "UrlData.h"
 #include "VersionInfo.h"
 #include "TimeWindow.h"
 
@@ -18,7 +17,6 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
 //==============================================================
 namespace
 {
-	//bool debugMode = true;
 	bool autoLoad = false;
 	bool fileLoad = false;
 	bool apiUpdated = false;
@@ -430,20 +428,19 @@ CVFPCPlugin::CVFPCPlugin(void) :CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 		SendToConsole(vfpc::urgent, "Configuration file error.");
 		return;
 	}
-/*
-	std::string results_view = to_upper(plugin_config_.console_results_view);
-	if (results_view == "FULL") {
-		console_results_view_ = ResultsView::Full;
-	}
-	else {
-		console_results_view_ = ResultsView::Summary;
-	}
-*/
 
-	if (!plugin_config_.config_warnings.empty()) {
+	if (plugin_config_.defaulted_settings_count > 0) {
 		SendToConsole(vfpc::urgent,
-			"Config warnings : {} setting(s) defaulted.  Use '.vfpc config' for details.",
-			plugin_config_.config_warnings.size());
+			"Config warning: {} setting(s) defaulted. "
+			"Use '.vfpc config' for details.",
+			plugin_config_.defaulted_settings_count);
+	}
+
+	if (plugin_config_.unknown_keys_count > 0) {
+		SendToConsole(vfpc::urgent,
+			"Config warning: {} unrecognised setting(s) ignored. "
+			"Use '.vfpc config' for details.",
+			plugin_config_.unknown_keys_count);
 	}
 
 	if (!InitializeLogging(plugin_config_)) {
@@ -1740,31 +1737,34 @@ std::vector<bool> CVFPCPlugin::checkDestination(const rapidjson::Value& conditio
 	const std::string& destination,
 	std::vector<bool>& in) const
 {
-	std::vector<bool> out{};
-	out.reserve(conditions.Size());
+	std::vector<bool> out (conditions.Size(), false);
+	bool explicit_destination_match = false;
+
+	// Search only constraints currently in consideration.
+	for (size_t i = 0; i < conditions.Size(); i++) {
+		if (i >= in.size() || !in[i]) continue;
+		const auto& cond = conditions[i];
+		if (!ConstraintAllowsDestination_(cond, destination)) continue;
+
+		const auto* dests = FindArrayMember(cond, "dests");
+		if (dests && !dests->Empty() && !destArrayContains(*dests, destination).empty()) {
+			explicit_destination_match = true;
+			break;
+		}
+	}
 
 	for (size_t i = 0; i < conditions.Size(); i++) {
-		if (!in[i]) {
-			out.push_back(false);
-			continue;
-		}
-
-		bool res = true;
-
+		if (i >= in.size() || !in[i]) continue;
 		const auto& cond = conditions[i];
-		const auto* nodestsArr = FindArrayMember(cond, "nodests");
-		if (nodestsArr && !nodestsArr->Empty()) {
-			if (destArrayContains(*nodestsArr, destination.c_str()).size()) {
-				res = false;
-			}
+		if (!ConstraintAllowsDestination_(cond, destination)) continue;
+
+		if (explicit_destination_match) {
+			const auto* dests = FindArrayMember(cond, "dests");
+			out[i] = dests && !dests->Empty() && !destArrayContains(*dests, destination).empty();
 		}
-		const auto* destsArr = FindArrayMember(cond, "dests");
-		if (destsArr && !destsArr->Empty()) {
-			if (!destArrayContains(*destsArr, destination.c_str()).size()) {
-				res = false;
-			}
+		else {
+			out[i] = true;
 		}
-		out.push_back(res);
 	}
 	return out;
 }
@@ -2267,27 +2267,13 @@ bool CVFPCPlugin::RestrictionObjectMatches_(const FlightPlanRow& row,
 		}
 	}
 
-	//// ----------------------------------------------------------
-	//// banned
-	//// ----------------------------------------------------------
-	//if (const auto* bannedValue = FindMemberValue(restriction, "banned");
-	//	bannedValue && bannedValue->IsBool() && bannedValue->GetBool()) {
-	//	local.banned = true;
-
-	//	fails.suffix = fails.suffix || local.suffix;
-	//	fails.type = fails.type || local.type;
-	//	fails.time = fails.time || local.time;
-	//	fails.banned = fails.banned || local.banned;
-
-	//	return false;
-	//}
-
 	// ----------------------------------------------------------
 	// banned
 	// ----------------------------------------------------------
 	// A matching banned restriction is still a MATCH.
 	// Do not return false here, otherwise the constraint is removed
 	// before route matching and the result becomes RTE instead of BAN.
+
 	if (const auto* bannedValue = FindMemberValue(restriction, "banned");
 		bannedValue && bannedValue->IsBool() && bannedValue->GetBool()) {
 		fails.banned = true;
@@ -6647,10 +6633,6 @@ void CVFPCPlugin::OnGetTagItem(EuroScopePlugIn::CFlightPlan flightPlan,
 void CVFPCPlugin::ShowConfigStatus_()
 {
 	SendToConsole(vfpc::urgent, "VFPC config status");
-
-	//std::string view_text = fmt::format("Console results view: {}",
-		//(console_results_view_ == ResultsView::Full) ? "FULL" : "SUMMARY");
-	//SendToConsole(view_text.c_str(), false);
 
 	if (plugin_config_.config_warnings.empty()) {
 		SendToConsole("Config warnings: none");

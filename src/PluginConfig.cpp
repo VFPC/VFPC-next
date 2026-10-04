@@ -47,8 +47,13 @@ bool InitialiseConfig(const std::string& filepath, PluginConfig& plugin_config) 
 	plugin_config.TAG_GREY = RGB(grey.r, grey.g, grey.b);
 	plugin_config.TAG_CYAN = RGB(cyan.r, cyan.g, cyan.b);
 
-	//plugin_config.console_results_view = config.ConsoleResultsView();
 	plugin_config.config_warnings = config.warnings();
+
+	plugin_config.defaulted_settings_count =
+		config.DefaultedSettingsCount();
+
+	plugin_config.unknown_keys_count =
+		config.UnknownKeysCount();
 
     return true;
 }
@@ -77,8 +82,6 @@ void LogConfiguration(const PluginConfig& pc)
 	LOG_INFO("  user_agent           = {}", pc.user_agent);
 	LOG_INFO("  Accept               = {}", pc.header_accept);
 	LOG_INFO("  Content-Type         = {}", pc.header_content_type);
-
-	//LOG_INFO("  console_results_view = {}", pc.console_results_view);
 
 	if (!pc.config_warnings.empty()) {
 		LOG_WARN("{} configuration setting(s) defaulted:",
