@@ -2,6 +2,58 @@
 
 ---
 
+### Session 2026-10-08: branch hygiene pass — test-harness lane and `ari/fix-sid-applicability` retired
+
+**Scope:** VFPC-next local clone + remote branches (no plugin code touched)
+
+**Context:** Triggered by a Hub-side review of Peter's new user-guide PDF and
+`README_revision_2.md` draft (that review changed no `VFPC-next` files). While
+confirming local clone state, found it sitting on the stale `fix/route-selector-minimal`
+branch with 4 dirty working-tree files, which prompted a wider look at the branch list
+this repo's own docs had already flagged as cleanup candidates back on 2026-10-04.
+
+**Dirty working tree resolved:** 3 of the 4 modified files (`Documentation/butler/`'s
+three files) were byte-identical to `origin/main` — pure CRLF noise, confirmed via
+`git diff --stat` showing zero lines changed. The 4th, `docs/vfpc-next-supplement.md`,
+had a small 7-line improvement sitting on an otherwise globally-stale file — not worth
+preserving in isolation. All 4 discarded (`git checkout --`), then switched to `main`.
+Exposed an untracked `VFPC_Tests/third_party/{googletest,rapidjson}` leftover (vendored
+submodule checkouts git couldn't `rmdir` on branch switch due to nested `.git` dirs) —
+force-cleaned with `git clean -ffdx`.
+
+**5 branches deleted**, each individually verified safe before deletion (PR state via
+`gh pr list`, ancestry via `git merge-base --is-ancestor`, content via `git diff --stat`
+against `main`):
+- `chore/remove-unused-test-harness` (PR #26, `MERGED`) — local-only, force-deleted
+  (squash merge, expected non-ancestor)
+- `docs/remove-stale-test-harness-doc` (PR #28, `MERGED`) — local-only, force-deleted
+- `test-harness/main` — no PR ever opened; diff vs `main` was 100% the old
+  `VFPC_Tests`/rapidjson-vendor/googletest-submodule content PR #26 already removed, plus
+  stale butler-doc snapshots. Remote (`origin/test-harness/main`) and local both deleted.
+- `test/plugin-mutation-coverage` — local-only, same obsolete harness content plus a copy
+  of the already-"never used" `scripts/vfpc_plugin_test.py` Python mutation runner.
+  Force-deleted.
+- `ari/fix-sid-applicability` — PR #5, `MERGED` 2026-04-11, confirmed a **true ancestor**
+  of `main` (real merge, not squashed) — cleanest possible case. Its separate worktree
+  (`VFPC-next-ari-sid-applicability`) removed first, then remote and local branch deleted
+  with a plain `git branch -d` (no force needed).
+
+**Net effect:** local branches 10 → 3 (`main`, `fix/route-selector-in-restrictions`,
+`fix/route-selector-minimal`); remote branches 12 → 10. `git status -sb` clean on `main`,
+in sync with `origin/main`, zero untracked files.
+
+**Not touched** (flagged, needs explicit confirmation before any further deletion):
+`Refactor-of-FP-validation-code` (Peter's WIP, remote gone), 4 old `backup/*`/`cleanup/*`
+refs from the April recovery incident, `v4.0.0-Beta3` (already merged, remote-only),
+`fix/route-selector-in-restrictions`/`fix/route-selector-minimal` (superseded by issue
+#13's independent fix but not yet confirmed for deletion), `Release-Candidate-05102026`
+(Peter's current live branch, not stale).
+
+**Butler docs updated:** all three files in this directory, reflecting the new branch
+count and the trimmed "remaining cleanup" list.
+
+---
+
 ### Session 2026-10-04: sidecar harness retired; v4.0.0.0 release PR opened for Peter's review
 
 **Scope:** VFPC-next `main`

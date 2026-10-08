@@ -1,6 +1,6 @@
 # VFPC-next — Project Status
 
-_Last updated: 2026-10-04 (v4.0.0.0 released -- PR #27 merged)_
+_Last updated: 2026-10-08 (branch hygiene pass -- test-harness lane and `ari/fix-sid-applicability` retired)_
 
 ---
 
@@ -25,14 +25,25 @@ never actually used.
 
 | Branch | Purpose | Status |
 |--------|---------|--------|
-| `main` | Production baseline | Clean at `19761a9a` — **v4.0.0.0 released** (merge commit for PR #27) |
-| `v4.0.0-Beta3` | Peter's v4.0.0.0 release candidate | Merged into `main` 2026-10-04 via PR #27 (real merge commit, consistent with PR #15's Beta2 release). Branch itself left in place, not deleted. |
-| `peter-clean-port-2026-04-03` (PR #3) | Peter's earlier rewrite attempt | Closed, never merged — superseded by the Beta3 line |
+| `main` | Production baseline | Clean at `ab6cfd90` — **v4.0.0.0 released** (PR #27 merge, plus the 2026-10-04 butler-doc wind-up commit on top) |
+| `v4.0.0-Beta3` | Peter's v4.0.0.0 release candidate | Merged into `main` 2026-10-04 via PR #27 (real merge commit, consistent with PR #15's Beta2 release). Remote-only now, left in place, not deleted. |
+| `peter-clean-port-2026-04-03` (PR #3) | Peter's earlier rewrite attempt | Closed, never merged — superseded by the Beta3 line. Branch ref no longer exists (was already gone before 2026-10-08's cleanup). |
 
-Other remote branches exist (`backup/*`, `cleanup/*`, `test-harness/main`, several of
-Peter's `fix/*` and `Refactor-of-*` branches) but have not been audited or touched this
-session — see "Immediate Next Steps" in `next_session_prompt.md`. Do not delete any branch
-without J. Kino's explicit confirmation per the repo-wide local-git-cleanliness rule.
+**2026-10-08 branch hygiene pass** — local branch count 10 → 3, remote 12 → 10. Deleted
+(confirmed merged or fully superseded, verified via `gh pr list` + `git merge-base
+--is-ancestor` + direct diff against `main` before each deletion):
+- `chore/remove-unused-test-harness` (PR #26, merged) — local only, now gone
+- `docs/remove-stale-test-harness-doc` (PR #28, merged) — local only, now gone
+- `test-harness/main` (no PR, fully superseded by PR #26's removal) — local + remote gone
+- `test/plugin-mutation-coverage` (local-only, same obsolete content) — gone
+- `ari/fix-sid-applicability` (PR #5, merged 2026-04-11, true ancestor of `main`) —
+  local + remote + its separate worktree (`VFPC-next-ari-sid-applicability`) all gone
+
+**Still present, not touched this session** (`backup/*`, `cleanup/*`, `Refactor-of-FP-validation-code`,
+`fix/route-selector-in-restrictions`, `fix/route-selector-minimal`, `v4.0.0-Beta3`) — see
+the numbered list in `next_session_prompt.md`'s "Immediate Next Steps" for per-branch
+status. Do not delete any of these without J. Kino's explicit confirmation per the
+repo-wide local-git-cleanliness rule.
 
 ---
 
@@ -74,5 +85,10 @@ as fixed/superseded. No need to re-check these unless something resurfaces.)
 1. v4.0.0.0 is released. No GitHub tag or formal release notes were cut as part of this
    merge — if Peter wants a tagged GitHub Release, that's a separate, explicit step not
    done yet.
-2. Everything else is parked — see `next_session_prompt.md` for the full flagged list
-   (stale docs, stale branches) that was found but intentionally not acted on this session.
+2. Issue #13 (time-as-selector bug) closed 2026-10-08 on the Hub side — Peter had already
+   fixed it himself in beta2 (PR #15, 2026-05-16). Its two parked branches
+   (`fix/route-selector-in-restrictions`, `fix/route-selector-minimal`) are superseded and
+   recommended for deletion, pending confirmation.
+3. Everything else is parked — see `next_session_prompt.md`'s "Immediate Next Steps" for
+   the full flagged list (one stale doc, six remaining branches) found but intentionally
+   not acted on without further confirmation.

@@ -1,6 +1,6 @@
 # VFPC-next — Next Session Prompt
 
-_Last updated: 2026-10-04 (session: sidecar harness retired; v4.0.0.0 released)_
+_Last updated: 2026-10-08 (session: branch hygiene pass — test-harness lane and `ari/fix-sid-applicability` retired)_
 
 ---
 
@@ -50,6 +50,53 @@ The old "PR #3 decision" guidance below is historical only — do not act on it.
 
 ---
 
+## What Was Completed (2026-10-08 session)
+
+Branch hygiene pass, prompted by a Hub-side review of Peter's new user-guide PDF and
+`README_revision_2.md` draft (no `VFPC-next` files changed by that review — see
+`vFPC-Hub/Documentation/butler/` for that side of it). While in the repo, found the local
+clone sitting on the stale `fix/route-selector-minimal` branch with dirty working-tree
+files; used the opportunity to also clear the test-harness branches this file already
+flagged as safe to remove, plus one more found the same way.
+
+1. **Dirty working tree discarded, branch switched back to `main`.** Local clone was on
+   `fix/route-selector-minimal` with 4 modified files: the 3 `Documentation/butler/` files
+   were byte-identical to what's already committed on `origin/main` (pure CRLF
+   normalisation noise — no content diff via `git diff --stat`), and
+   `docs/vfpc-next-supplement.md` had a small 7-line improvement (more accurate
+   popup-action/chat-command list) on top of a file that's globally stale anyway. All 4
+   discarded with `git checkout --`, then switched to `main`.
+2. **Untracked `VFPC_Tests/` cruft force-cleaned.** Switching branches exposed an
+   untracked `VFPC_Tests/third_party/{googletest,rapidjson}` directory — leftover vendored
+   submodule checkouts from before PR #26 removed the harness; git couldn't `rmdir` them
+   on a normal checkout because of nested `.git` dirs. Removed with `git clean -ffdx --
+   VFPC_Tests`.
+3. **4 branches confirmed safe and deleted** (all content already fully subsumed by PR
+   #26/#28, or never merged and fully superseded):
+   - `chore/remove-unused-test-harness` — PR #26 confirmed `MERGED` via `gh pr list`;
+     local-only `-D` (squash merge, not an ancestor, as expected).
+   - `docs/remove-stale-test-harness-doc` — PR #28 confirmed `MERGED`; local-only `-D`.
+   - `test-harness/main` — no PR ever opened for it; `git diff --stat main...test-harness/main`
+     showed its entire 9450-line diff was the old `VFPC_Tests`/rapidjson-vendor/
+     googletest-submodule content that PR #26 deliberately removed, plus stale
+     (superseded) butler-doc snapshots. Deleted both the remote (`origin/test-harness/main`)
+     and local ref.
+   - `test/plugin-mutation-coverage` — local-only (no remote ref existed), same obsolete
+     harness content plus a copy of `scripts/vfpc_plugin_test.py` (the Python mutation
+     runner already recorded elsewhere in these docs as "never actually used"). `-D`'d.
+4. **`ari/fix-sid-applicability` retired** (branch + its separate worktree at
+   `VFPC-next-ari-sid-applicability`): PR #5 confirmed `MERGED` 2026-04-11 via `gh pr
+   list`, and `git merge-base --is-ancestor` confirmed it really is an ancestor of
+   current `main` (a true merge, not squashed) — the cleanest possible case. Worktree
+   removed (`git worktree remove`), remote branch deleted, local branch safe-deleted
+   (`git branch -d`, no force needed).
+
+**Net effect:** local branch count 10 → 3 (`main`, `fix/route-selector-in-restrictions`,
+`fix/route-selector-minimal`); remote branch count 12 → 10. Working tree and `main` are
+both clean, in sync with `origin/main`. Nothing deleted was still-open, unmerged work.
+
+---
+
 ## What Was Completed (2026-10-04 session)
 
 - **PR #26 merged** (`chore/remove-unused-test-harness` → `main`): removed `VFPC_Tests/`,
@@ -70,26 +117,37 @@ The old "PR #3 decision" guidance below is historical only — do not act on it.
 
 1. v4.0.0.0 is released on `main`. No GitHub tag or formal Release was cut as part of
    this merge -- if Peter wants one, that's a separate explicit step, not done yet.
-2. Not yet done, flagged but out of scope for the 2026-10-04 session — only act on these if
-   explicitly asked:
-   - `docs/test-harness.md` and `docs/vfpc-next-supplement.md` still describe the removed
-     sidecar harness.
-   - A number of stale branches exist (`backup/main-pre-recovery-2026-04-03`,
-     `backup/refactor-pre-legacy-prune-2026-04-20`, `cleanup/pre-trash-removal-2026-04-13`,
-     `cleanup/recovered-clean-main-2026-04-13`, `test-harness/main`,
-     `peter-clean-port-2026-04-03` (closed-PR branch), and a handful of Peter's own WIP
-     branches: `Refactor-of-FP-validation-code`, `ari/fix-sid-applicability`,
-     `fix-analyzefp-after-merge`, `fix/route-selector-in-restrictions`,
-     `fix/route-selector-minimal`). Per the local-git-cleanliness rule, do not delete any
-     of these without J. Kino's explicit confirmation — several may be Peter's active work.
-   - Issue **#6** (remove hard-wired `vcpkg.exe` dependency) is the only open GitHub issue;
-     Peter owns it, parked.
+2. `docs/vfpc-next-supplement.md` still describes the removed sidecar harness (the one
+   file left stale after 2026-10-08's cleanup) — not yet rewritten; low priority.
+3. Remaining stale/undecided branches — do not delete any without J. Kino's explicit
+   confirmation, per the local-git-cleanliness rule. 2026-10-08 cut this list from ~10
+   entries to 6:
+   - `Refactor-of-FP-validation-code` (local only, remote already gone) — Peter's own WIP
+     restoring `analyzeFP.cpp` after a bad merge resolution; still has the old sidecar
+     dirs baked into its tree snapshot as a side effect of predating PR #26, but that's
+     not its purpose — don't conflate with the harness cleanup.
+   - `backup/main-pre-recovery-2026-04-03`, `backup/refactor-pre-legacy-prune-2026-04-20`,
+     `cleanup/pre-trash-removal-2026-04-13`, `cleanup/recovered-clean-main-2026-04-13`
+     (all remote-only, from the April recovery incident) — never revisited since; likely
+     safe but unaudited.
+   - `v4.0.0-Beta3` (remote-only) — Peter's already-merged release line (PR #27); probably
+     safe to delete now that `main` has it, but not actioned without confirmation.
+   - `fix/route-selector-in-restrictions` / `fix/route-selector-minimal` — **not stale
+     cruft**, these are Peter's/Ari's Option A/B branches for issue #13. Per Hub's
+     2026-10-08 finding, issue #13 (time-as-selector bug) was already independently fixed
+     by Peter in beta2 (commit `b5299836`, PR #15, 2026-05-16) — both branches are now
+     superseded. Recommended for deletion, but not yet actioned pending explicit
+     confirmation (same rule as above).
+   - `Release-Candidate-05102026` — Peter's newest branch (vcpkg/bundled-lib cleanup,
+     commit `17492075`), no PR open. This is live/current, not stale — leave alone.
+4. Issue **#6** (remove hard-wired `vcpkg.exe` dependency) is the only open GitHub issue;
+   Peter owns it, parked.
 
 ## Parked (do not start without explicit reason)
 
 - **Issue #6 (vcpkg cleanup):** Peter owns vcpkg direction; do not push.
-- **Stale branch cleanup** (see list above): needs J. Kino confirmation per repo rules,
-  not an AI judgment call.
+- **Remaining branch cleanup** (see numbered list above): needs J. Kino confirmation
+  per repo rules, not an AI judgment call. Ask before touching any of the 6 remaining.
 
 ---
 
