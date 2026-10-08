@@ -96,12 +96,9 @@ validation result.
 
 ## Toggle Override
 
-**Toggle Override** allows the controller to override the displayed validation
-result.
+**Toggle Override** allows the controller to override the validation status displayed in the **FPL** column.
 
-An override does not change the filed flight plan or the underlying validation
-result. The **FPL** column displays **OVR** to indicate that a controller
-override has been applied.
+An override does not change the filed flight plan or the underlying validation result. The **FPL** column displays **OVR** to indicate that a controller override has been applied.
 
 Select **Toggle Override** again to remove the override.
 

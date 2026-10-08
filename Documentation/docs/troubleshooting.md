@@ -10,7 +10,7 @@ For information about individual validation result codes, see the
 
 Check that:
 
-- `vfpc.dll` has been loaded in EuroScope.
+- `VFPC.dll` has been loaded in EuroScope.
 - The **VFPC/VFPC** tag item has been added to the Departure List.
 - The **FPL** column is visible.
 
@@ -62,4 +62,6 @@ Issues that have been resolved are documented in the release notes.
 
 ## Known Limitations
 
-There are currently no known limitations.
+vFPC is designed to validate IFR departure flight plans against the available vFPC validation data. It does not validate VFR flight plans.
+
+Validation is dependent on the coverage and accuracy of the available validation data. A successful validation does not remove the controller's responsibility to ensure that a flight plan and clearance are appropriate.

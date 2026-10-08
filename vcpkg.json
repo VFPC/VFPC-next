@@ -1,6 +1,6 @@
 {
   "name": "vfpc",
-  "version-string": "1.0.0",
+  "version-string": "4.0.0.0",
   "dependencies": [
     "spdlog",
 	"fmt",
