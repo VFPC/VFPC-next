@@ -26,6 +26,12 @@ https://vfpcdata.org/docs/
 For information about building vFPC from source, see
 [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md).
 
+## Acknowledgements
+
+vFPC 4 was developed by Peter Richardson, building on the earlier vFPC implementation and contributions of Lenny Colton, Jan Fries, Hendrik Peter and Sven Czarnian.
+
+Their work established the foundations on which vFPC 4 builds.
+
 ## Licence
 
 vFPC is licensed under the GNU General Public License version 3.

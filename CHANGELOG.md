@@ -2,7 +2,7 @@
 
 This document records the significant changes made to released versions of vFPC.
 
-## 4.0.0.0 - dd-mm-2026
+## 4.0.0.0 - 11-10-2026
 
 vFPC 4 represents a substantial rewrite of the previous vFPC implementation, with a new architecture designed to improve validation, reliability and maintainability.
 

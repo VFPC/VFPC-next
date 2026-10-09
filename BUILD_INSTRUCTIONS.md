@@ -4,7 +4,7 @@ vFPC is a C++ plugin for EuroScope that validates IFR departure flight plans aga
 
 This document explains how to obtain the source code, configure the Windows development environment and prepare the vFPC plugin for building.
 
-For instructions on installing, configuring and using the plugin, refer to the [vFPC User Guide](https://vfpcdata.org/docs/).
+For instructions on installing, configuring and using the plugin, refer to the [vFPC User Guide](https://vfpcdata.org/docs/index.html).
 
 ---
 
