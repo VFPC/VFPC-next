@@ -61,7 +61,7 @@ The final part of configuration is to add a column to the Departure List which i
 
 ### Configure mouse actions
 
-1. Set **Left button** to **VFPC / OPTIONS**.
+1. Set **Left button** to **VFPC / Options**.
 2. Set **Right button** to **UK Controller Plugin / Open SRD Search**.
 3. The Departure List columns setup dialog should now look similar to Figure 3.
 

@@ -27,7 +27,7 @@ The **FPL** column within the Departure List displays a short code indicating th
 
 ![vFPC validation results in the EuroScope Departure List](images/Departure-List-Tags.png){.vfpc-screenshot .vfpc-screenshot--50percent}
 
-*Figure 5: vFPC validation results in the EuroScope Departure List.*{ .vfpc-caption }
+*Figure 4: vFPC validation results in the EuroScope Departure List.*{ .vfpc-caption }
 
 For example:
 
@@ -51,7 +51,7 @@ The **FPL** column is also used to access vFPC functions.
 
 Left-click the **FPL** result for a flight plan to open the vFPC options menu.
 
-As shown in **Figure 6**, the menu provides four options:
+As shown in **Figure 5**, the menu provides four options:
 
 - **Show Checks (SUMMARY)**
 - **Show Checks (FULL)**
@@ -62,7 +62,7 @@ The purpose and use of each option are described in the following sections.
 
 ![vFPC Options menu](images/Departure-List-Popup-Menu.png){ .vfpc-screenshot .vfpc-screenshot--wide }
 
-*Figure 6: vFPC options available from the Departure List.*{ .vfpc-caption }
+*Figure 5: vFPC options available from the Departure List.*{ .vfpc-caption }
 
 ### Right-click — SRD Search
 
@@ -76,7 +76,7 @@ information when reviewing a flight plan.
 
 More detailed information about a validation result can be displayed in the
 EuroScope message window by selecting **Show Checks (SUMMARY)** or
-**Show Checks (FULL)** from the menu shown in **Figure 6**.
+**Show Checks (FULL)** from the menu shown in **Figure 5**.
 
 ### Show Checks (SUMMARY)
 

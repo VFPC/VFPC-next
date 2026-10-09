@@ -19,7 +19,7 @@ Individual checks may depend on the results of earlier checks.
 
 ![Validation Flowchart](images/validation-flow.png){.vfpc-screenshot .vfpc-screenshot--50percent}
 
-*Figure 7: Simplified vFPC validation process.*{.vfpc-caption}
+*Figure 6: Simplified vFPC validation process.*{.vfpc-caption}
 
 The validation data is primarily generated from the NATS Standard Route Document (SRD) and may also include airport-specific operational rules and local procedures.
 
