@@ -19,7 +19,7 @@ Individual checks may depend on the results of earlier checks.
 
 ![Validation Flowchart](images/validation-flow.png){.vfpc-screenshot .vfpc-screenshot--50percent}
 
-*Figure 7: Simplified vFPC validation process.*{.vfpc-caption}
+*Figure 6: Simplified vFPC validation process.*{.vfpc-caption}
 
 The validation data is primarily generated from the NATS Standard Route Document (SRD) and may also include airport-specific operational rules and local procedures.
 
@@ -63,7 +63,7 @@ below.
 | <span class="vfpc-tag vfpc-tag--red">RST</span> / <span class="vfpc-tag vfpc-tag--amber">RST</span> | SID or route restriction requires attention |
 | <span class="vfpc-tag vfpc-tag--red">BAN</span> | Applicable route or SID ban triggered |
 | <span class="vfpc-tag vfpc-tag--red">SYN</span> | Flight plan syntax validation failed |
-| <span class="vfpc-tag vfpc-tag--red">ERR</span> | Unexpected validation error |
+| <span class="vfpc-tag vfpc-tag--red">ERR</span> | Error encountered during validation |
 
 ---
 
@@ -110,7 +110,11 @@ Select **Toggle Checks** again to re-enable validation.
 ---
 
 <span class="vfpc-tag vfpc-tag--cyan">OVR</span> indicates that the controller
-has applied an override to the validation result using **Toggle Override**.
+has applied an override to the validation status displayed in the **FPL**
+column using **Toggle Override**.
+
+The override does not change the filed flight plan or the underlying
+validation result.
 
 Select **Toggle Override** again to remove the override.
 

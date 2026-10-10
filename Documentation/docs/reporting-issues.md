@@ -30,6 +30,7 @@ information as applicable:
 - Callsign.
 - Departure and destination aerodromes.
 - Assigned departure runway.
+- SID.
 - EOBT.
 - Aircraft type.
 - Requested flight level.

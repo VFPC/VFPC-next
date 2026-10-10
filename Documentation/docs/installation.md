@@ -9,7 +9,7 @@ vFPC is no longer included with the VATSIM UK Controller Pack.
 Download the latest version from the
 [GitHub Releases](https://github.com/VFPC/VFPC/releases/latest) page.
 
-After downloading `vfpc.dll` it is recommended that you move it to the folder `%APPDATA%\EuroScope\UK\Data\Plugin\VFPC\`.
+After downloading `VFPC.dll` move it to the folder `%APPDATA%\EuroScope\UK\Data\Plugin\VFPC\`.
 
 The plugin will work from any location, but the above path is the recommended location for consistency with other EuroScope plugins.
 
@@ -34,9 +34,9 @@ Before you use the plugin it needs to be configured within EuroScope as follows:
 
 1. Start EuroScope and open the required profile (`.prf`).
 2. From the menu bar, select **Other Set → Plug-ins**.
-3. From the Plug-ins Dialog, click the **Load** button and navigate to the folder where you moved `vfpc.dll`.
-4. Select `vfpc.dll` and click **Open**.
-5. `vfpc.dll` should now appear in the list as shown below.
+3. From the Plug-ins Dialog, click the **Load** button and navigate to the folder where you moved `VFPC.dll`.
+4. Select `VFPC.dll` and click **Open**.
+5. `VFPC.dll` should now appear in the list as shown below.
    
     ![EuroScope Plugin Dialog List](images/plugin-dialog-list.png){.vfpc-screenshot}
 
@@ -61,7 +61,7 @@ The final part of configuration is to add a column to the Departure List which i
 
 ### Configure mouse actions
 
-1. Set **Left button** to **VFPC / OPTIONS**.
+1. Set **Left button** to **VFPC / Options**.
 2. Set **Right button** to **UK Controller Plugin / Open SRD Search**.
 3. The Departure List columns setup dialog should now look similar to Figure 3.
 
@@ -82,8 +82,8 @@ New versions of vFPC are published on the
 To update vFPC:
 
 1. Close EuroScope.
-2. Download the latest version of `vfpc.dll`.
-3. Replace the existing `vfpc.dll` in your vFPC plugin folder with the new version.
+2. Download the latest version of `VFPC.dll`.
+3. Replace the existing `VFPC.dll` in your vFPC plugin folder with the new version.
 4. Restart EuroScope.
 
 Your existing Departure List configuration does not normally need to be
