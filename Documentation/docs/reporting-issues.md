@@ -10,7 +10,7 @@ available through the vFPC Discord server.
 
 Use the link below to join the vFPC Discord server:
 
-[Join the vFPC Discord server](https://discord.gg/ff8fsG3k)
+[Join the vFPC Discord server](https://discord.gg/zcgkBfayDz)
 
 If you do not already have a Discord account, you will be prompted to create
 one or sign in before joining the server.

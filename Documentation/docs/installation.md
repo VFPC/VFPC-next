@@ -7,7 +7,7 @@ This guide explains how to install the vFPC plugin into EuroScope and configure 
 vFPC is no longer included with the VATSIM UK Controller Pack.
 
 Download the latest version from the
-[GitHub Releases](https://github.com/VFPC/VFPC/releases/latest) page.
+[GitHub Releases](https://github.com/VFPC/VFPC-next/releases/latest) page.
 
 After downloading `VFPC.dll` move it to the folder `%APPDATA%\EuroScope\UK\Data\Plugin\VFPC\`.
 
@@ -77,7 +77,7 @@ The vFPC plugin is now configured and ready for use.
 ## Updating vFPC
 
 New versions of vFPC are published on the
-[GitHub Releases](https://github.com/VFPC/VFPC/releases/latest) page.
+[GitHub Releases](https://github.com/VFPC/VFPC-next/releases/latest) page.
 
 To update vFPC:
 

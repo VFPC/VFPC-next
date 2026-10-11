@@ -58,7 +58,7 @@ Severity matters. Repeated behavior matters. Whether someone corrects course mat
 ## Reporting
 
 Report problems by opening a ticket on the project Discord server:
-https://discord.gg/xucfd2K523
+https://discord.gg/zcgkBfayDz
 
 Reports should include enough detail to investigate properly.
 Deliberately false or malicious reports are themselves a conduct problem.
