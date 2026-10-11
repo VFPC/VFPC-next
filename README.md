@@ -10,16 +10,16 @@ This repository contains the source code for vFPC 4 and later versions.
 
 ## Downloads
 
-The latest release of vFPC, including the `VFPC.dll` plugin and downloadable PDF User Guide, is available from the [vFPC Releases page](https://github.com/VFPC/VFPC/releases/latest).
+The latest release of vFPC, including the `VFPC.dll` plugin and downloadable PDF User Guide, is available from the [vFPC Releases page](https://github.com/VFPC/VFPC-next/releases/latest).
 
-The release repository contains the files required by controllers to install and use vFPC. This repository (`VFPC-next`) contains the source code.
+This repository (`VFPC-next`) is the official home of vFPC: it contains the source code and publishes the releases. The previous v3 source is preserved on the read-only [`v3` branch of VFPC/VFPC](https://github.com/VFPC/VFPC/tree/v3).
 
 ## Documentation
 
 The vFPC User Guide is available in two formats:
 
 - **Online User Guide:** [vfpcdata.org/docs](https://vfpcdata.org/docs/)
-- **PDF User Guide:** [Download from GitHub Releases](https://github.com/VFPC/VFPC/releases/latest)
+- **PDF User Guide:** [Download from GitHub Releases](https://github.com/VFPC/VFPC-next/releases/latest)
 
 For developers wishing to build vFPC from source, see [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md).
 
