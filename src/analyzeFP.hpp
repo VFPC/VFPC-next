@@ -1,4 +1,4 @@
-//======================================================================
+﻿//======================================================================
 // analyzeFP.h
 //
 // Declares the main VFPC plugin class and the core data structures used
@@ -729,19 +729,29 @@ private:
 		const std::vector<size_t>& candidates,
 		int rfl) const;
 
+	// Evaluate each suggested initial route against SID restrictions without
+	// changing the actual flight's validation state or its restriction rules.
+	bool RouteSuggestionAllowsSidRestrictions_(
+		const rapidjson::Value& sid_restrictions,
+		const FlightPlanRow& row,
+		const std::string& alternative) const;
+
 	std::vector<std::string> CollectRouteExamples_(
 		const rapidjson::Value& constraints,
 		const std::vector<size_t>& candidates,
-		int rfl) const;
+		const FlightPlanRow& row,
+		const rapidjson::Value& sid_restrictions) const;
 
 	std::string RouteOutputShort_(const rapidjson::Value& constraints,
 		const std::vector<size_t>& candidates,
-		int rfl,
+		const FlightPlanRow& row,
+		const rapidjson::Value& sid_restrictions,
 		std::size_t max_examples = 2) const;
 
 	std::string RouteOutputFailureDetail_(const rapidjson::Value& constraints,
 		const std::vector<size_t>& candidates,
-		int rfl,
+		const FlightPlanRow& row,
+		const rapidjson::Value& sid_restrictions,
 		std::size_t max_examples = 5) const;
 
 	struct RouteMismatchDetail
@@ -760,7 +770,8 @@ private:
 	RouteMismatchDetail FindBestRouteMismatch_(
 		const rapidjson::Value& constraints,
 		const std::vector<size_t>& candidates,
-		int rfl,
+		const FlightPlanRow& row,
+		const rapidjson::Value& sid_restrictions,
 		const std::vector<std::string>& filed_route) const;
 
 	std::string RouteMismatchText_(

@@ -1,4 +1,4 @@
-//==============================================================
+﻿//==============================================================
 // 1. Includes / globals / file-local state
 //==============================================================
 #include "stdafx.h"
@@ -955,13 +955,47 @@ bool CVFPCPlugin::fileCall(rapidjson::Document& out)
 	return true;
 }
 
+bool CVFPCPlugin::RouteSuggestionAllowsSidRestrictions_(
+	const rapidjson::Value& sid_restrictions,
+	const FlightPlanRow& row,
+	const std::string& alternative) const
+{
+	if (!sid_restrictions.IsArray() || sid_restrictions.Empty()) return true;
+
+	// Test the suggested initial route, not the route that just failed.
+	// Preserve aircraft, suffix, EOBT and level; never mutate the filed row.
+	FlightPlanRow candidate = row;
+	candidate.route_points.clear();
+	if (!row.first_waypoint.empty()) {
+		candidate.route_points.push_back(StripRouteTokenSuffixForValidation_(row.first_waypoint));
+	}
+	for (const auto& token : BuildValidationRoutePoints_(split(alternative, ' '))) {
+		if (token != "DCT") candidate.route_points.push_back(token);
+	}
+
+	// A matching ban counts as a match in validation so it can report BAN.
+	// Suggestions must explicitly exclude it rather than interpreting it as permission.
+	for (const auto& restriction : sid_restrictions.GetArray()) {
+		RestrictionFailureFlags fails{};
+		if (RestrictionObjectMatches_(candidate, restriction, fails) && fails.banned) {
+			return false;
+		}
+	}
+
+	const auto result = EvaluateSidRestrictions_(candidate, sid_restrictions);
+	// Keep the existing broad type-only override; route/time failures cannot use it.
+	return result.passed || !result.any_applicable ||
+		SidLevelFailureCanBeOverriddenByConstraint_(candidate, sid_restrictions);
+}
+
 std::vector<std::string> CVFPCPlugin::CollectRouteExamples_(
 	const rapidjson::Value& constraints,
 	const std::vector<size_t>& candidates,
-	int rfl) const
+	const FlightPlanRow& row,
+	const rapidjson::Value& sid_restrictions) const
 {
 	std::vector<std::string> examples;
-	for (size_t idx : FilterRouteSuggestionCandidates_(constraints, candidates, rfl)) {
+	for (size_t idx : FilterRouteSuggestionCandidates_(constraints, candidates, row.rfl)) {
 		const auto& cond = constraints[static_cast<rapidjson::SizeType>(idx)];
 		const auto* routes = FindArrayMember(cond, "route");
 		if (!routes) continue;
@@ -972,6 +1006,7 @@ std::vector<std::string> CVFPCPlugin::CollectRouteExamples_(
 			std::string example = item.GetString();
 			// A standalone wildcard is not a useful example; embedded ones remain.
 			if (example.empty() || example == WILDCARD) continue;
+			if (!RouteSuggestionAllowsSidRestrictions_(sid_restrictions, row, example)) continue;
 			// Deduplicate individual alternatives across all eligible constraints,
 			// preserving data order so display limits and omitted counts are stable.
 			if (std::find(examples.begin(), examples.end(), example) == examples.end()) {
@@ -1036,7 +1071,8 @@ CVFPCPlugin::RouteMismatchDetail CVFPCPlugin::CompareRouteSequence_(
 CVFPCPlugin::RouteMismatchDetail CVFPCPlugin::FindBestRouteMismatch_(
 	const rapidjson::Value& constraints,
 	const std::vector<size_t>& candidates,
-	int rfl,
+	const FlightPlanRow& row,
+	const rapidjson::Value& sid_restrictions,
 	const std::vector<std::string>& filed_route) const
 {
 	RouteMismatchDetail best{};
@@ -1046,7 +1082,7 @@ CVFPCPlugin::RouteMismatchDetail CVFPCPlugin::FindBestRouteMismatch_(
 	}
 
 	// Explain a mismatch only against the same eligible set as the examples.
-	for (size_t idx : FilterRouteSuggestionCandidates_(constraints, candidates, rfl)) {
+	for (size_t idx : FilterRouteSuggestionCandidates_(constraints, candidates, row.rfl)) {
 		const auto& cond = constraints[static_cast<rapidjson::SizeType>(idx)];
 
 		const auto* routeArr = FindArrayMember(cond, "route");
@@ -1060,6 +1096,10 @@ CVFPCPlugin::RouteMismatchDetail CVFPCPlugin::FindBestRouteMismatch_(
 			}
 
 			if (std::string(item.GetString()).empty() || item.GetString() == std::string(WILDCARD)) {
+				continue;
+			}
+			// Do not describe a prohibited alternative as an expected route.
+			if (!RouteSuggestionAllowsSidRestrictions_(sid_restrictions, row, item.GetString())) {
 				continue;
 			}
 			std::vector<std::string> expected_route =
@@ -1423,10 +1463,11 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 
 std::string CVFPCPlugin::RouteOutputShort_(const rapidjson::Value& constraints,
 	const std::vector<size_t>& candidates,
-	int rfl,
+	const FlightPlanRow& row,
+	const rapidjson::Value& sid_restrictions,
 	std::size_t max_examples) const
 {
-	const auto examples = CollectRouteExamples_(constraints, candidates, rfl);
+	const auto examples = CollectRouteExamples_(constraints, candidates, row, sid_restrictions);
 
 	if (examples.empty()) {
 		return "No permitted route match.";
@@ -1454,10 +1495,11 @@ std::string CVFPCPlugin::RouteOutputShort_(const rapidjson::Value& constraints,
 
 std::string CVFPCPlugin::RouteOutputFailureDetail_(const rapidjson::Value& constraints,
 	const std::vector<size_t>& candidates,
-	int rfl,
+	const FlightPlanRow& row,
+	const rapidjson::Value& sid_restrictions,
 	std::size_t max_examples) const
 {
-	const auto examples = CollectRouteExamples_(constraints, candidates, rfl);
+	const auto examples = CollectRouteExamples_(constraints, candidates, row, sid_restrictions);
 
 	if (examples.empty()) {
 		return "Valid Initial Routes: None.";
@@ -3439,10 +3481,16 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 					// route mask, so successes still contains the preceding survivors.
 					// Pass those indices directly; raw speed/level suffixes must not
 					// trigger a fresh point search or a broader fallback (ARC958).
+					const rapidjson::Value no_sid_restrictions;
+					const auto* restrictions = FindArrayMember(*matched_sid, "restrictions");
+					const auto& suggestion_restrictions =
+						restrictions ? *restrictions : no_sid_restrictions;
+
 					const RouteMismatchDetail mismatch =
 						FindBestRouteMismatch_(*constraints,
 							successes,
-							row.rfl,
+							row,
+							suggestion_restrictions,
 							normalised_route);
 
 					const std::string mismatch_text = RouteMismatchText_(mismatch);
@@ -3453,7 +3501,8 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 
 					text += RouteOutputShort_(*constraints,
 						successes,
-						row.rfl,
+						row,
+						suggestion_restrictions,
 						2);
 
 					SetField_(validationResult,
