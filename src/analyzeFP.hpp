@@ -1,4 +1,4 @@
-﻿//======================================================================
+//======================================================================
 // analyzeFP.h
 //
 // Declares the main VFPC plugin class and the core data structures used
@@ -722,27 +722,26 @@ private:
 	bool ConstraintAllowsDestination_(const rapidjson::Value& cond,
 		const std::string& destination) const;
 
-	bool ConstraintAllowsLevel_(const rapidjson::Value& cond,
+	// RTE output helpers take preceding validation survivors and narrow them
+	// by filed level/direction. They never reconsider rejected constraints.
+	std::vector<size_t> FilterRouteSuggestionCandidates_(
+		const rapidjson::Value& constraints,
+		const std::vector<size_t>& candidates,
 		int rfl) const;
-
-	std::string BuildShortRouteExample_(const rapidjson::Value& cond) const;
 
 	std::vector<std::string> CollectRouteExamples_(
 		const rapidjson::Value& constraints,
-		const std::string& destination,
-		int rfl,
-		const std::vector<std::string>& route_points) const;
+		const std::vector<size_t>& candidates,
+		int rfl) const;
 
 	std::string RouteOutputShort_(const rapidjson::Value& constraints,
-		const std::string& destination,
+		const std::vector<size_t>& candidates,
 		int rfl,
-		const std::vector<std::string>& route_points,
 		std::size_t max_examples = 2) const;
 
 	std::string RouteOutputFailureDetail_(const rapidjson::Value& constraints,
-		const std::string& destination,
+		const std::vector<size_t>& candidates,
 		int rfl,
-		const std::vector<std::string>& route_points,
 		std::size_t max_examples = 5) const;
 
 	struct RouteMismatchDetail
@@ -760,7 +759,7 @@ private:
 
 	RouteMismatchDetail FindBestRouteMismatch_(
 		const rapidjson::Value& constraints,
-		const std::string& destination,
+		const std::vector<size_t>& candidates,
 		int rfl,
 		const std::vector<std::string>& filed_route) const;
 

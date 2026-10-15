@@ -1,4 +1,4 @@
-﻿//==============================================================
+//==============================================================
 // 1. Includes / globals / file-local state
 //==============================================================
 #include "stdafx.h"
@@ -726,30 +726,32 @@ bool CVFPCPlugin::ConstraintAllowsDestination_(const rapidjson::Value& cond,
 	return true;
 }
 
-bool CVFPCPlugin::ConstraintAllowsLevel_(const rapidjson::Value& cond,
+std::vector<size_t> CVFPCPlugin::FilterRouteSuggestionCandidates_(
+	const rapidjson::Value& constraints,
+	const std::vector<size_t>& candidates,
 	int rfl) const
 {
-	if (!cond.IsObject()) {
-		return false;
-	}
+	std::vector<size_t> eligible;
+	if (!constraints.IsArray()) return eligible;
 
-	const int flight_level = rfl / 100;
-
-	int min_level = 0;
-	if (GetIntMember(cond, "min", min_level)) {
-		if (flight_level < min_level) {
-			return false;
+	// Start only from constraints that survived destination, exit-point and
+	// restriction checks. Empty candidates must stay empty: do not broaden them.
+	std::vector<bool> mask(constraints.Size(), false);
+	for (size_t idx : candidates) {
+		if (idx < constraints.Size() &&
+			constraints[static_cast<rapidjson::SizeType>(idx)].IsObject()) {
+			mask[idx] = true;
 		}
 	}
 
-	int max_level = 0;
-	if (GetIntMember(cond, "max", max_level)) {
-		if (flight_level > max_level) {
-			return false;
-		}
+	// Reuse validation rules for unset bounds and RVSM/non-RVSM direction.
+	// This mask is local to suggestion output; validation state is unchanged.
+	mask = checkMinMax(constraints, rfl, mask);
+	mask = checkDirection(constraints, rfl, mask);
+	for (size_t idx = 0; idx < mask.size(); ++idx) {
+		if (mask[idx]) eligible.push_back(idx);
 	}
-
-	return true;
+	return eligible;
 }
 
 //==============================================================
@@ -953,109 +955,30 @@ bool CVFPCPlugin::fileCall(rapidjson::Document& out)
 	return true;
 }
 
-std::string CVFPCPlugin::BuildShortRouteExample_(const rapidjson::Value& cond) const
-{
-	if (!cond.IsObject()) {
-		return {};
-	}
-
-	const auto* routeArr = FindArrayMember(cond, "route");
-	if (!routeArr || routeArr->Empty()) {
-		return {};
-	}
-
-	std::string out;
-	for (rapidjson::SizeType i = 0; i < routeArr->Size(); ++i) {
-		const auto& item = (*routeArr)[i];
-		if (!item.IsString()) {
-			continue;
-		}
-
-		if (!out.empty()) {
-			out += ' ';
-		}
-		out += item.GetString();
-	}
-
-	return out;
-}
-
 std::vector<std::string> CVFPCPlugin::CollectRouteExamples_(
 	const rapidjson::Value& constraints,
-	const std::string& destination,
-	int rfl,
-	const std::vector<std::string>& route_points) const
+	const std::vector<size_t>& candidates,
+	int rfl) const
 {
 	std::vector<std::string> examples;
+	for (size_t idx : FilterRouteSuggestionCandidates_(constraints, candidates, rfl)) {
+		const auto& cond = constraints[static_cast<rapidjson::SizeType>(idx)];
+		const auto* routes = FindArrayMember(cond, "route");
+		if (!routes) continue;
 
-	if (!constraints.IsArray() || constraints.Empty()) {
-		return examples;
-	}
-
-	auto routeContainsPoint = [&](const rapidjson::Value& cond) {
-		const auto* points = FindArrayMember(cond, "points");
-		if (!points || points->Empty()) {
-			return false;
-		}
-
-		for (const auto& p : points->GetArray()) {
-			if (!p.IsString()) continue;
-
-			if (std::find(route_points.begin(), route_points.end(),
-				std::string(p.GetString())) != route_points.end()) {
-				return true;
-			}
-		}
-
-		return false;
-		};
-
-	auto addMatchingExamples = [&](auto predicate) {
-		for (rapidjson::SizeType i = 0; i < constraints.Size(); ++i) {
-			const auto& cond = constraints[i];
-
-			if (!cond.IsObject()) continue;
-			if (!predicate(cond)) continue;
-
-			std::string example = BuildShortRouteExample_(cond);
-			if (example.empty()) continue;
-
+		// Each array entry is an alternative sequence, not another route segment.
+		for (const auto& item : routes->GetArray()) {
+			if (!item.IsString()) continue;
+			std::string example = item.GetString();
+			// A standalone wildcard is not a useful example; embedded ones remain.
+			if (example.empty() || example == WILDCARD) continue;
+			// Deduplicate individual alternatives across all eligible constraints,
+			// preserving data order so display limits and omitted counts are stable.
 			if (std::find(examples.begin(), examples.end(), example) == examples.end()) {
 				examples.push_back(std::move(example));
 			}
 		}
-		};
-
-	// Best: matching destination + level + filed exit/point.
-	addMatchingExamples([&](const rapidjson::Value& cond) {
-		return ConstraintAllowsDestination_(cond, destination)
-			&& ConstraintAllowsLevel_(cond, rfl)
-			&& routeContainsPoint(cond);
-		});
-
-	// Next best: matching route point + level.
-	if (examples.empty()) {
-		addMatchingExamples([&](const rapidjson::Value& cond) {
-			return ConstraintAllowsLevel_(cond, rfl)
-				&& routeContainsPoint(cond);
-			});
 	}
-
-	// Existing behaviour: destination + level.
-	if (examples.empty()) {
-		addMatchingExamples([&](const rapidjson::Value& cond) {
-			return ConstraintAllowsDestination_(cond, destination)
-				&& ConstraintAllowsLevel_(cond, rfl);
-			});
-	}
-
-	// Final fallback.
-	if (examples.empty()) {
-		addMatchingExamples([&](const rapidjson::Value&) {
-			return true;
-			});
-	}
-
 	return examples;
 }
 
@@ -1112,7 +1035,7 @@ CVFPCPlugin::RouteMismatchDetail CVFPCPlugin::CompareRouteSequence_(
 
 CVFPCPlugin::RouteMismatchDetail CVFPCPlugin::FindBestRouteMismatch_(
 	const rapidjson::Value& constraints,
-	const std::string& destination,
+	const std::vector<size_t>& candidates,
 	int rfl,
 	const std::vector<std::string>& filed_route) const
 {
@@ -1122,20 +1045,9 @@ CVFPCPlugin::RouteMismatchDetail CVFPCPlugin::FindBestRouteMismatch_(
 		return best;
 	}
 
-	for (rapidjson::SizeType i = 0; i < constraints.Size(); ++i) {
-		const auto& cond = constraints[i];
-
-		if (!cond.IsObject()) {
-			continue;
-		}
-
-		if (!ConstraintAllowsDestination_(cond, destination)) {
-			continue;
-		}
-
-		if (!ConstraintAllowsLevel_(cond, rfl)) {
-			continue;
-		}
+	// Explain a mismatch only against the same eligible set as the examples.
+	for (size_t idx : FilterRouteSuggestionCandidates_(constraints, candidates, rfl)) {
+		const auto& cond = constraints[static_cast<rapidjson::SizeType>(idx)];
 
 		const auto* routeArr = FindArrayMember(cond, "route");
 		if (!routeArr || routeArr->Empty()) {
@@ -1147,6 +1059,9 @@ CVFPCPlugin::RouteMismatchDetail CVFPCPlugin::FindBestRouteMismatch_(
 				continue;
 			}
 
+			if (std::string(item.GetString()).empty() || item.GetString() == std::string(WILDCARD)) {
+				continue;
+			}
 			std::vector<std::string> expected_route =
 				split(item.GetString(), ' ');
 
@@ -1507,12 +1422,11 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 }
 
 std::string CVFPCPlugin::RouteOutputShort_(const rapidjson::Value& constraints,
-	const std::string& destination,
+	const std::vector<size_t>& candidates,
 	int rfl,
-	const std::vector<std::string>& route_points,
 	std::size_t max_examples) const
 {
-	const auto examples = CollectRouteExamples_(constraints, destination, rfl, route_points);
+	const auto examples = CollectRouteExamples_(constraints, candidates, rfl);
 
 	if (examples.empty()) {
 		return "No permitted route match.";
@@ -1539,12 +1453,11 @@ std::string CVFPCPlugin::RouteOutputShort_(const rapidjson::Value& constraints,
 }
 
 std::string CVFPCPlugin::RouteOutputFailureDetail_(const rapidjson::Value& constraints,
-	const std::string& destination,
+	const std::vector<size_t>& candidates,
 	int rfl,
-	const std::vector<std::string>& route_points,
 	std::size_t max_examples) const
 {
-	const auto examples = CollectRouteExamples_(constraints, destination, rfl, route_points);
+	const auto examples = CollectRouteExamples_(constraints, candidates, rfl);
 
 	if (examples.empty()) {
 		return "Valid Initial Routes: None.";
@@ -3522,9 +3435,13 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 				else {
 					std::string text = "Failed Route. ";
 
+					// On a route failure the loop breaks before assigning the failed
+					// route mask, so successes still contains the preceding survivors.
+					// Pass those indices directly; raw speed/level suffixes must not
+					// trigger a fresh point search or a broader fallback (ARC958).
 					const RouteMismatchDetail mismatch =
 						FindBestRouteMismatch_(*constraints,
-							row.destination,
+							successes,
 							row.rfl,
 							normalised_route);
 
@@ -3535,9 +3452,8 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 					}
 
 					text += RouteOutputShort_(*constraints,
-						row.destination,
+						successes,
 						row.rfl,
-						row.route_points,
 						2);
 
 					SetField_(validationResult,
