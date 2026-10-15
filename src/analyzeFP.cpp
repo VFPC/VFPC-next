@@ -1233,10 +1233,10 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 		};
 
 		const bool minchange =
-			NormaliseVersionVector_(minVersion) != *parsedMinVersion;
+			NormaliseVersionVector_(minVersion) != NormaliseVersionVector_(*parsedMinVersion);
 
 		const bool curchange =
-			NormaliseVersionVector_(curVersion) != *parsedCurrentVersion;
+			NormaliseVersionVector_(curVersion) != NormaliseVersionVector_(*parsedCurrentVersion);
 
 		minVersion = *parsedMinVersion;
 		curVersion = *parsedCurrentVersion;

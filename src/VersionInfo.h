@@ -7,12 +7,12 @@
 //==============================================================
 
 //--------------------------------------------------------------
-// VERSION - EDIT THESE VALUES FOR EACH RELEASE/BUILD
+// VERSION - PUBLIC RELEASE AND NUMERIC DLL REVISION (not Git identity)
 //--------------------------------------------------------------
 
 #define VFPC_VERSION_MAJOR 4
 #define VFPC_VERSION_MINOR 0
-#define VFPC_VERSION_PATCH 0
+#define VFPC_VERSION_PATCH 1
 #define VFPC_VERSION_BUILD 1
 
 // Set to 1 for beta/RC builds, 0 for a normal release.
@@ -56,27 +56,15 @@
 //--------------------------------------------------------------
 
 #if VFPC_IS_PRERELEASE
-
-    // Example: v4.0.0-beta1 (build 3)
-#define VFPC_DISPLAY_VERSION \
-        "v" VFPC_VERSION_STR "-" VFPC_VERSION_PRERELEASE \
-        " (build " VFPC_STRINGIZE(VFPC_VERSION_BUILD) ")"
-
-    // Example: 4.0.0-beta1
-#define VFPC_RC_VERSION_STR \
-        VFPC_VERSION_STR "-" VFPC_VERSION_PRERELEASE
-
+#define VFPC_RC_VERSION_STR VFPC_VERSION_STR "-" VFPC_VERSION_PRERELEASE
+#define VFPC_RC_FILE_VERSION_STR VFPC_VERSION_STR_FULL "-" VFPC_VERSION_PRERELEASE
 #else
-
-    // Example: v4.0.0 (build 0)
-#define VFPC_DISPLAY_VERSION \
-        "v" VFPC_VERSION_STR \
-        " (build " VFPC_STRINGIZE(VFPC_VERSION_BUILD) ")"
-
-    // Example: 4.0.0
 #define VFPC_RC_VERSION_STR VFPC_VERSION_STR
-
+#define VFPC_RC_FILE_VERSION_STR VFPC_VERSION_STR_FULL
 #endif
+
+// Public display deliberately excludes DLL revision and Git metadata.
+#define VFPC_DISPLAY_VERSION "v" VFPC_RC_VERSION_STR
 
 //--------------------------------------------------------------
 // Build configuration

@@ -38,6 +38,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
+    <None Include="scripts\GenerateGitBuildInfo.ps1" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
@@ -73,6 +74,16 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <!-- Git state can change without any tracked source timestamp changing. -->
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+    <VFPCGitInfoDir>$(ProjectDir)bin\$(Platform)\$(Configuration)\Generated\</VFPCGitInfoDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(VFPCGitInfoDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
     <OutDir>$(AppData)\EuroScope\UK\Data\Plugin\VFPC\</OutDir>
@@ -153,6 +164,11 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <!-- Run on each requested build; unchanged content preserves header timestamp. -->
+  <Target Name="VFPCGenerateGitBuildInfo" BeforeTargets="PrepareForBuild"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)scripts\GenerateGitBuildInfo.ps1&quot; -RepositoryDir &quot;$(ProjectDir).&quot; -OutputFile &quot;$(VFPCGitInfoDir)GitBuildInfo.h&quot;" />
+  </Target>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>

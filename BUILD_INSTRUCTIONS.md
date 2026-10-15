@@ -700,3 +700,37 @@ After correcting a build configuration or dependency problem, perform a complete
 **Build → Rebuild Solution**
 
 If the problem remains, use the Visual Studio **Output** window rather than only the **Error List** when investigating the failure. The Output window normally provides the compiler or linker command and the detailed error that caused the build to fail.
+
+
+## Build identity and release versions
+
+`src/VersionInfo.h` is the source of the public major/minor/patch version and
+numeric DLL revision. Public messages and server comparisons use three numeric
+components; prerelease labels are displayed but do not affect server ordering.
+The DLL retains four numeric components (each must be between 0 and 65535).
+Its FileVersion text includes the revision; ProductVersion uses the public version.
+Increment release values deliberately, rather than for every Git commit.
+
+Every requested Visual Studio/MSBuild build runs
+`scripts/GenerateGitBuildInfo.ps1` before compilation, using Windows PowerShell.
+Git for Windows must be available on PATH to capture identity. The script writes
+`bin/<Platform>/<Configuration>/Generated/GitBuildInfo.h`, an ignored build output,
+and preserves its timestamp when the content is unchanged. The IDE up-to-date
+shortcut is disabled so a commit or dirty-state change cannot bypass generation;
+normal compiler/linker incremental checks remain enabled.
+
+The generated identity contains the full HEAD hash and dirty status. Dirty means
+staged, unstaged, or non-ignored untracked changes anywhere in the repository,
+including submodule changes. It describes source state at the time of generation;
+a dirty flag does not identify the exact uncommitted edits. Avoid editing source
+while building. Ignored files, installed dependencies and compiler versions are
+not captured by this identity. Source archives, unavailable Git, or failed Git
+queries produce explicit `unknown` fields and a build warning, replacing stale
+metadata rather than claiming the build is clean.
+
+The existing once-only logger initialization records one INFO startup entry with
+public version, DLL version, Debug/Release configuration, commit hash and dirty
+status. INFO must be enabled in the logging configuration to record this entry.
+Git is never invoked by the running plugin. Version-check messages contain only
+the public version; fourth server version components remain accepted but are
+ignored for ordering and notification change detection.

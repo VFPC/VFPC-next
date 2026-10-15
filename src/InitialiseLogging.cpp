@@ -3,6 +3,7 @@
 #include "PluginConfig.h"
 #include "Constant.hpp"
 #include "Log.h"
+#include "GitBuildInfo.h"
 
 
 // Helper: map string to spdlog level (case-insensitive, safe defaults)
@@ -81,7 +82,11 @@ bool InitializeLogging(PluginConfig& pc)
             logger->flush_on(to_level(pc.flush_level));
 		
 
-            logger->info("{} {} logging started.", VFPC_PLUGIN_NAME, VFPC_DISPLAY_VERSION);
+            // This initializer runs once; build metadata is never queried at runtime.
+            logger->info(
+                "{} startup: version={} dll_version={} configuration={} git={} dirty={}",
+                VFPC_PLUGIN_NAME, VFPC_RC_VERSION_STR, VFPC_VERSION_STR_FULL,
+                VFPC_BUILD_CONFIGURATION, VFPC_GIT_COMMIT, VFPC_GIT_DIRTY);
 
             log_initialized = true;
         }
