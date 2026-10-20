@@ -4484,7 +4484,12 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 				if (can_validate_now) should_validate = true;
 				else should_store_pending = true;
 			}
-			else if (!it->second.last_result.ready && can_validate_now) {
+			// A runway-pending result remains valid for this fingerprint.
+			// Runway assignment changes the fingerprint; snapshot publication
+			// separately revalidates tracked flights. Neither needs tag retries.
+			else if (!it->second.last_result.ready && can_validate_now &&
+				!(it->second.last_result.status == ValidationStatus::Pending &&
+					row.departure_rwy.empty())) {
 				should_validate = true;
 			}
 		}
