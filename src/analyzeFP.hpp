@@ -115,6 +115,10 @@ public:
 	struct AirportValidationData {
 		rapidjson::Document airport_json; // Single airport, built from API or file.
 		AirportValidationData() { airport_json.SetObject(); }
+		~AirportValidationData() noexcept;
+		unsigned long long snapshot_id = 0;
+		std::string requested_airport;
+		const char* load_source = "unknown";
 	};
 
 	enum ValidationField
@@ -332,6 +336,8 @@ public:
 	std::atomic_bool version_checked{ false };
 	std::atomic_bool validVersion{ false };
 	std::atomic<std::shared_ptr<const AirportValidationData>> airport_data_{ nullptr };
+	void PublishAirportSnapshot_(std::shared_ptr<const AirportValidationData> next,
+		const char* reason) noexcept;
 	std::atomic_bool airport_reload_requested_{ false };
 	std::atomic_bool airport_load_inflight_{ false };
 	//==============================================================

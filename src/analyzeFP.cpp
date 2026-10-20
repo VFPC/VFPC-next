@@ -341,6 +341,35 @@ namespace
 } // end namespace
 
 
+// Diagnostic helpers must never change validation or cleanup control flow.
+CVFPCPlugin::AirportValidationData::~AirportValidationData() noexcept
+{
+	try {
+		LOG_INFO("Airport snapshot releasing: id={} airport='{}' source='{}' dom_used_bytes={} dom_capacity_bytes={} (before document destruction)",
+			snapshot_id, requested_airport, load_source,
+			airport_json.GetAllocator().Size(), airport_json.GetAllocator().Capacity());
+	}
+	catch (...) {}
+}
+
+void CVFPCPlugin::PublishAirportSnapshot_(
+	std::shared_ptr<const AirportValidationData> next, const char* reason) noexcept
+{
+	auto previous = airport_data_.exchange(next, std::memory_order_acq_rel);
+	try {
+		if (next) {
+			LOG_INFO("Airport snapshot published: id={} airport='{}' source='{}' replaced_id={} reason='{}'",
+				next->snapshot_id, next->requested_airport, next->load_source,
+				previous ? previous->snapshot_id : 0, reason);
+		}
+		else if (previous) {
+			LOG_INFO("Airport snapshot removed: id={} airport='{}' source='{}' reason='{}'",
+				previous->snapshot_id, previous->requested_airport, previous->load_source, reason);
+		}
+	}
+	catch (...) {}
+}
+
 bool CVFPCPlugin::IsAirwayToken_(const std::string& token)
 {
 	// Allow common ATS route designators:
@@ -469,14 +498,31 @@ CVFPCPlugin::~CVFPCPlugin()
 	if (airport_thread_.joinable())
 		airport_thread_.request_stop();
 
+	// Request both stops before waiting. Workers must finish while their
+	// state and logging are still available, and before snapshots are released.
+	if (airport_thread_.joinable())
+		airport_thread_.join();
+	if (version_thread_.joinable())
+		version_thread_.join();
+
+	// Move out under the lock; destruction/logging happens after unlocking.
+	std::shared_ptr<AirportValidationData> pending;
+	{
+		std::lock_guard lk(pending_mtx_);
+		pending = std::move(pending_snapshot_);
+		pending_ready_.store(false, std::memory_order_release);
+	}
+	pending.reset();
+	PublishAirportSnapshot_(nullptr, "plugin shutdown");
+
 	if (thisVersion) {
 		free(thisVersion);
 		thisVersion = nullptr;
 	}
 
-	airport_data_.store(nullptr, std::memory_order_release);
-
 	LOG_INFO("Plugin logging shutting down ....");
+	if (auto logger = spdlog::get(VFPC_LOGGER_NAME))
+		logger->flush();
 	spdlog::shutdown();
 }
 
@@ -4058,7 +4104,7 @@ void CVFPCPlugin::TryLockActiveAirportFromFlightPlan_(const	FlightPlanRow& row)
 				airport_data_requested_ = false;
 				origin_counts_.clear();
 
-				airport_data_.store(nullptr, std::memory_order_release);
+				PublishAirportSnapshot_(nullptr, "inferred airport correction");
 				airport_reload_requested_.store(true, std::memory_order_release);
 			}
 
@@ -6795,7 +6841,7 @@ void CVFPCPlugin::OnTimer(int Counter)
 				airport_load_inflight_.store(false, std::memory_order_release);
 				airport_reload_requested_.store(false, std::memory_order_release);
 				pending_ready_.store(false, std::memory_order_release);
-				airport_data_.store(nullptr, std::memory_order_release);
+				PublishAirportSnapshot_(nullptr, "disconnect");
 
 				ResetActiveAirportState();
 				ResetTrackedFlightPlans_();
@@ -6831,16 +6877,7 @@ void CVFPCPlugin::OnTimer(int Counter)
 				}
 			}
 			if (snap) {
-				airport_data_.store(std::const_pointer_cast<const AirportValidationData>(snap),
-					std::memory_order_release);
-
-				const auto* icao = FindMemberValue(snap->airport_json, "icao");
-
-				const char* source_text = fileLoad ? "file" : "server";
-
-				LOG_INFO("Airport snapshot published: airport='{}' source='{}'",
-					(icao && icao->IsString()) ? icao->GetString() : "(unknown)",
-					source_text);
+				PublishAirportSnapshot_(snap, "worker result");
 
 				// Snapshot now exists, so a fresh request is no longer outstanding
 				{
@@ -6923,10 +6960,24 @@ void CVFPCPlugin::OnTimer(int Counter)
 				{
 					try {
 						auto snap = std::make_shared<AirportValidationData>();
+						static std::atomic<unsigned long long> next_snapshot_id{ 1 };
+						snap->snapshot_id = next_snapshot_id.fetch_add(1, std::memory_order_relaxed);
+						snap->requested_airport = airport;
+						snap->load_source = source == SidSource::File ? "file" : "server";
+						const auto load_started = std::chrono::steady_clock::now();
 						const bool ok = FetchSidsInto_((source == SidSource::File) ? SidSource::File : SidSource::DataServer,
 							airport,
 							st,
 							snap->airport_json);
+
+						try {
+							const double load_ms = std::chrono::duration<double, std::milli>(
+								std::chrono::steady_clock::now() - load_started).count();
+							LOG_INFO("Airport snapshot load: id={} airport='{}' source='{}' ok={} stop_requested={} duration_ms={:.3f} dom_used_bytes={} dom_capacity_bytes={}",
+								snap->snapshot_id, airport, snap->load_source, ok, st.stop_requested(), load_ms,
+								snap->airport_json.GetAllocator().Size(), snap->airport_json.GetAllocator().Capacity());
+						}
+						catch (...) {}
 
 						if (!ok || st.stop_requested()) {
 							airport_load_inflight_.store(false, std::memory_order_release);
