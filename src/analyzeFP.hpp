@@ -818,6 +818,9 @@ private:
 
 	void ProcessTrackedFlightPlan_(const FlightPlanRow& row);
 
+	void StoreAndLogValidationResult_(const FlightPlanRow& row,
+		ValidationResult result);
+
 	void RevalidateTrackedFlightPlans_(const char* reason);
 
 	void PruneTrackedFlightPlans_();

@@ -4444,6 +4444,10 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 		}
 	}
 	if (should_store_pending) {
+		// Keep an info-level audit trail because production logging may omit trace messages.
+		LOG_INFO("Validation pending: callsign='{}' reason='airport data not loaded'",
+			row.callsign);
+
 		ValidationResult pending = initialiseResults(row.callsign);
 		pending.fields[VF_SID].summary = "Loading";
 		pending.fields[VF_SID].full = "Airport data not loaded yet.";
@@ -4467,7 +4471,13 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 
 	auto result = ValidateFlightPlan_(row);
 	result.itemString = TagMnemonicFromResult_(result);
+	StoreAndLogValidationResult_(row, std::move(result));
+}
 
+void CVFPCPlugin::StoreAndLogValidationResult_(const FlightPlanRow& row,
+	ValidationResult result)
+{
+	// Use one fingerprint and log format for immediate and delayed validation.
 	const std::string result_fingerprint =
 		result.itemString + "|" +
 		result.fields[VF_STATUS].summary + "|" +
@@ -4483,36 +4493,36 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 		result.fields[VF_BANS].summary + "|" +
 		result.fields[VF_SYNTAX].summary;
 
-	{
-		std::lock_guard<std::mutex> g(tracked_flightplans_mtx_);
-		auto it = tracked_flightplans_.find(row.callsign);
-		if (it != tracked_flightplans_.end()) {
-			if (!it->second.has_logged_result ||
-				it->second.last_logged_result_fingerprint != result_fingerprint)
-			{
-				LOG_INFO(
-					"Validation result: callsign='{}' result='{}' status='{}' sid='{}' dest='{}' exit='{}' route='{}' level='{}' odd_even='{}' restrictions='{}' warnings='{}' bans='{}'",
-					row.callsign,
-					result.itemString,
-					result.fields[VF_STATUS].summary,
-					result.fields[VF_SID].summary,
-					result.fields[VF_DESTINATION].summary,
-					result.fields[VF_EXIT_POINT].summary,
-					result.fields[VF_ROUTE].summary,
-					result.fields[VF_MIN_MAX].summary,
-					result.fields[VF_ODD_EVEN].summary,
-					result.fields[VF_RESTRICTIONS].summary,
-					result.fields[VF_WARNINGS].summary,
-					result.fields[VF_BANS].summary
-				);
-
-				it->second.last_logged_result_fingerprint = result_fingerprint;
-				it->second.has_logged_result = true;
-			}
-
-			it->second.last_result = std::move(result);
-		}
+	std::lock_guard<std::mutex> g(tracked_flightplans_mtx_);
+	auto it = tracked_flightplans_.find(row.callsign);
+	if (it == tracked_flightplans_.end()) {
+		return;
 	}
+
+	if (!it->second.has_logged_result ||
+		it->second.last_logged_result_fingerprint != result_fingerprint)
+	{
+		LOG_INFO(
+			"Validation result: callsign='{}' result='{}' status='{}' sid='{}' dest='{}' exit='{}' route='{}' level='{}' odd_even='{}' restrictions='{}' warnings='{}' bans='{}'",
+			row.callsign,
+			result.itemString,
+			result.fields[VF_STATUS].summary,
+			result.fields[VF_SID].summary,
+			result.fields[VF_DESTINATION].summary,
+			result.fields[VF_EXIT_POINT].summary,
+			result.fields[VF_ROUTE].summary,
+			result.fields[VF_MIN_MAX].summary,
+			result.fields[VF_ODD_EVEN].summary,
+			result.fields[VF_RESTRICTIONS].summary,
+			result.fields[VF_WARNINGS].summary,
+			result.fields[VF_BANS].summary
+		);
+
+		it->second.last_logged_result_fingerprint = result_fingerprint;
+		it->second.has_logged_result = true;
+	}
+
+	it->second.last_result = std::move(result);
 }
 
 void CVFPCPlugin::RevalidateTrackedFlightPlans_(const char* reason)
@@ -4533,16 +4543,33 @@ void CVFPCPlugin::RevalidateTrackedFlightPlans_(const char* reason)
 		rows.size(),
 		reason ? reason : "airport data changed");
 
-	for (const auto& row : rows) {
-		auto result = ValidateFlightPlan_(row);
-		result.itemString = TagMnemonicFromResult_(result);
+	std::size_t errors = 0;
 
-		std::lock_guard<std::mutex> g(tracked_flightplans_mtx_);
-		auto it = tracked_flightplans_.find(row.callsign);
-		if (it != tracked_flightplans_.end()) {
-			it->second.last_result = std::move(result);
+	for (const auto& row : rows) {
+		try {
+			auto result = ValidateFlightPlan_(row);
+			result.itemString = TagMnemonicFromResult_(result);
+			StoreAndLogValidationResult_(row, std::move(result));
+		}
+		catch (const std::exception& ex) {
+			++errors;
+			LOG_ERROR("Revalidation failed: callsign='{}' error='{}'",
+				row.callsign, ex.what());
+		}
+		catch (const std::string& ex) {
+			++errors;
+			LOG_ERROR("Revalidation failed: callsign='{}' error='{}'",
+				row.callsign, ex);
+		}
+		catch (...) {
+			++errors;
+			LOG_ERROR("Revalidation failed: callsign='{}' unknown error",
+				row.callsign);
 		}
 	}
+
+	// Distinguish a completed batch from one interrupted before all rows were attempted.
+	LOG_INFO("Revalidation completed: attempted={} errors={}", rows.size(), errors);
 }
 
 void CVFPCPlugin::PruneTrackedFlightPlans_()
