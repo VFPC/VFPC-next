@@ -18,6 +18,16 @@ When suggesting or generating code:
 
 ---
 
+## Architectural Decision Authority
+
+The [ADR register](../Documentation/docs/adr/README.md) is the authoritative record of architectural decisions. Work/Codex must consult the register and relevant Accepted ADRs before proposing or implementing architectural changes.
+
+Accepted ADRs take precedence over conflicting historical documentation and architectural descriptions, including these instructions. Acceptance does not establish that functionality is implemented, tested or released. Explicitly labelled proposals and unresolved questions within an Accepted ADR are not accepted implementation choices.
+
+Report conflicts with Accepted ADRs to the project owner and obtain approval before implementation. Do not silently modify or supersede accepted decisions; follow the register's decision-history and supersession conventions.
+
+---
+
 # Project Overview
 
 VFPC validates IFR departure flight plans against airport-specific JSON validation data.
@@ -73,6 +83,22 @@ When modifying existing code:
 - prefer consistency with the immediate surrounding area
 - avoid mixing formatting-only changes with logic changes
 - avoid unnecessary churn in diffs
+
+---
+
+## Code Comments and Documentation
+
+These standards apply to future development. Do not retrospectively add comments throughout the existing codebase solely to meet them.
+
+- New functions and significantly modified functions should have concise descriptive comments explaining their purpose and, where relevant, parameters, return values, side effects and important assumptions.
+- Add explanatory comments for non-obvious logic, particularly flight-plan validation, restriction precedence, airport selection, caching, threading and snapshot management.
+- Prefer comments explaining why a decision or implementation exists rather than simply repeating what the code does.
+- Preserve useful existing comments and update them whenever the associated behaviour changes.
+- Remove obsolete or misleading comments when modifying the affected code.
+- Avoid excessive comments for self-explanatory statements and large blocks of commentary that duplicate the implementation.
+- Document important safety constraints, including locking requirements, thread ownership, snapshot immutability and EuroScope callback restrictions.
+- Comments describing architectural decisions must be consistent with the Accepted ADRs in the [ADR register](../Documentation/docs/adr/README.md). Reference the relevant ADR where it helps explain a non-obvious design constraint.
+- Use clear, professional English and keep comments concise enough to remain maintainable.
 
 ---
 
@@ -153,50 +179,44 @@ Prefer explicit checks and useful logging.
 
 # Core Architecture Rules
 
-## Single Airport Snapshot Model
+## Airport-Specific Immutable Snapshots
 
-VFPC uses a **single-airport snapshot validation model**.
+Validation uses airport-specific immutable snapshots. Support multi-airport loading for facilities whose selection policy uses Runway Activity, while preserving airport-specific data isolation. Select validation data for the flight plan's origin; do not mix data or results between airports.
 
-Rules:
-
-- only one airport may be active at a time
-- validation uses exactly one published airport snapshot
-- airport data is prepared off-thread
-- published snapshots are immutable
-- snapshot publication is atomic
-
-Do not introduce multi-airport validation unless explicitly redesigning the architecture.
+Prepare airport data and parse JSON off-thread. Publish only complete, valid immutable snapshots atomically, with thread-safe access. Do not impose a global one-airport or one-snapshot limit. These requirements do not prescribe a cache size, worker count, queue design or retry policy.
 
 ---
 
-## Active Airport Resolution
+## Airport Selection â€” Accepted Policy
 
-The active airport may be determined from:
+[ADR-001](../Documentation/docs/adr/ADR-001.md) defines the agreed architecture:
 
-### Controller Identity
+| EuroScope facility | Validation airport selection |
+|---|---|
+| DEL / GND / TWR | One airport identified from the controller callsign |
+| APP / CTR | Departure-active airports from EuroScope Runway Activity |
+| OBS | Departure-active airports from Runway Activity, without assuming controller responsibility |
+| Unknown facility | Fall back to departure-active airports from Runway Activity |
 
-Example:
+- Controller rating must not determine validation scope.
+- Departure-list membership must not automatically be treated as authoritative controller responsibility.
+- For DEL/GND/TWR, Runway Activity is diagnostic: it must not replace or expand the callsign-derived scope. If that airport is not departure-active, issue a configuration warning without excluding it from validation; ordinary validation prerequisites still apply.
+- Handle malformed or unrecognised callsigns safely. The fallback for DEL/GND/TWR when an airport cannot be reliably identified, and the classification of FSS positions, remain unresolved. Do not invent rules for them.
+- OBS selection uses Runway Activity; do not infer or lock a single airport from repeated IFR flight-plan origins. Preserve unrelated flight-plan tracking and caching.
 
-EGPH_TWR ? EGPH
+### Implementation Status
 
-Controller callsign determines airport.
+As recorded in ADR-001, the inspected working source contains multi-airport Runway Activity selection, snapshot lookup by flight-plan origin, selection-change revalidation and loading for multiple selected airports. The facility/callsign-specific policy above has not yet been implemented, and multi-airport behaviour has not been confirmed through live EuroScope testing. Accepted policy must not be described as current, tested functionality.
 
 ---
 
-### Observer Inference
+## UKCP Advisory Guidance
 
-Observer sessions (`_OBS`) do not provide airport identity.
+[ADR-002](../Documentation/docs/adr/ADR-002.md) requires UKCP controller-position information to remain advisory only. For a recognised controller callsign with a nonempty `top_down` list, compare departure-active Runway Activity airports against that list. Unexpected airports require advisory warnings in EuroScope and the vFPC log, identifying the callsign and airport, explaining the mismatch and recommending a Runway Activity check. Avoid unchanged duplicate warnings when the relevant selection and mapping have not changed.
 
-VFPC may infer the airport from repeated IFR flight plan origins.
+Empty mappings mean unknown coverage. Empty mappings, unknown positions and API failures must not disrupt constraint loading or flight-plan validation; log appropriate diagnostics. UKCP must never add, remove, filter or otherwise determine the effective validation airport set, block otherwise eligible validation, or automatically change Runway Activity settings. A match is not proof of actual operational responsibility.
 
-Rules:
-
-- only IFR flights are considered
-- origins are counted
-- threshold must be met before locking
-- once locked, only that airport is validated
-
-Be cautious modifying this behaviour.
+These are accepted requirements, not claims of implementation or testing. The exact warning presentation, cache lifetime, refresh interval, retry strategy and duplicate-suppression mechanism remain unresolved. UKCP loading must respect the nonblocking callback safeguards below.
 
 ---
 
@@ -216,7 +236,9 @@ Revalidation may also occur when:
 - airport validation data is reloaded
 - `.vfpc load` is used
 - `.vfpc file` loads replacement data
-- active airport snapshot changes
+- the relevant airport snapshot or effective airport set changes
+
+Changes of facility, callsign or effective airport set must not leave obsolete eligibility or cached results in use. Keep cached results associated with the correct airport and revalidate affected flight plans when relevant data or scope changes.
 
 Critical rule:
 
@@ -273,15 +295,16 @@ Responsibilities:
 - API load
 - file load
 - JSON parsing
-- airport extraction
-- snapshot preparation
-- atomic publication
+- airport-specific extraction
+- snapshot preparation for selected airports
+- atomic publication of airport-specific immutable snapshots
 
 Rules:
 
 - build complete data off-thread
 - publish only complete valid snapshots
 - never expose partial airport data
+- support loading for multiple selected airports without mixing airport data or blocking callbacks
 
 ---
 
@@ -289,9 +312,9 @@ Rules:
 
 Shared state includes:
 
-- active airport
-- pending snapshot
-- published snapshot
+- effective validation airport set
+- pending airport-specific snapshots
+- published airport-specific immutable snapshots
 - reload flags
 - request flags
 - version status
@@ -311,10 +334,10 @@ Rules:
 
 Required pattern:
 
-1. build snapshot off-thread
+1. build each airport-specific snapshot off-thread
 2. validate completeness
 3. publish atomically
-4. consumers read published immutable snapshot
+4. consumers access the appropriate published immutable snapshot for the flight-plan origin through thread-safe access
 
 Do not mutate live published snapshots.
 
@@ -382,18 +405,18 @@ Downloads airport validation JSON.
 Pattern:
 
 ```text
-https://vfpcplugin.org/airport/{ICAO}
+https://vfpcplugin.org/airport?icao={ICAO}
 ```
 
 Example:
 
 ```text
-https://vfpcplugin.org/airport/EGCC
+https://vfpcplugin.org/airport?icao=EGCC
 ```
 
 Rules:
 
-- only one airport loaded at a time
+- load airport-specific data for the selected validation airports; do not impose a global single-airport limit
 - response may be array wrapped
 
 Handled by:
@@ -547,7 +570,7 @@ Avoid vague wording.
 Prefer:
 
 ```text
-Only available during 2300–0600 local
+Only available during 2300-0600 local
 ```
 
 rather than:
@@ -654,7 +677,7 @@ Use caution when modifying:
 - warning generation
 - ban logic
 - time-window logic
-- active airport locking
+- facility/callsign-based scope resolution and Runway Activity selection changes
 - tracked flight plan caching
 - `.vfpc load`
 - `.vfpc file`
@@ -707,7 +730,7 @@ Do not commit:
 
 # Change Workflow
 
-Before changing behaviour:
+Before changing behaviour, consult the ADR register and relevant Accepted ADRs; report conflicts to the project owner for approval before implementation.
 
 1. identify exact failing case
 2. inspect JSON source
