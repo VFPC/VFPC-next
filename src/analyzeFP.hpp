@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -30,6 +31,7 @@
 #include "Utils.h"
 #include "PluginConfig.h"
 #include "Log.h"
+#include "WorkerNotificationQueue.h"
 
 
 //==============================================================
@@ -329,13 +331,15 @@ public:
 		COLORREF* pRGB,
 		double* pFontSize);
 
+	virtual void OnAirportRunwayActivityChanged() override;
 	virtual void OnTimer(int Count) override;
 	//==============================================================
 	// 11. Snapshot state shared across threads
 	//==============================================================
 	std::atomic_bool version_checked{ false };
 	std::atomic_bool validVersion{ false };
-	std::atomic<std::shared_ptr<const AirportValidationData>> airport_data_{ nullptr };
+	using AirportSnapshots = std::unordered_map<std::string, std::shared_ptr<const AirportValidationData>>;
+	AirportSnapshots airport_snapshots_; // Protected by active_mtx_.
 	void PublishAirportSnapshot_(std::shared_ptr<const AirportValidationData> next,
 		const char* reason) noexcept;
 	std::atomic_bool airport_reload_requested_{ false };
@@ -529,6 +533,18 @@ public:
 	* implementation details, and PROTECTED version state.
 	***********************************************************/
 private:
+	// Format inside Enqueue's catch boundary; only owned strings survive the call.
+	template<class Build>
+	void QueueWorkerNotifications_(Build&& build) noexcept
+	{
+		worker_notifications_.Enqueue([&] {
+			vfpc::WorkerNotificationQueue::Batch batch;
+			build(batch);
+			return batch;
+		});
+	}
+	void DrainWorkerNotifications_() noexcept;
+
 	//==========================================================
 	// 13. Private data structures
 	//==========================================================
@@ -557,33 +573,6 @@ private:
 		string sid_suffix;
 	};
 	enum class SidSource { DataServer, File };
-	enum class OwnIdentityKind
-	{
-		None,
-		Controller,
-		Observer,
-		Unknown
-	};
-	enum class ActiveAirportSource
-	{
-		None,
-		ControllerIdentity,
-		Inferred
-	};
-	struct OwnControllerInfo
-	{
-		bool valid = false;
-		int rating = -1;
-		std::string callsign;
-	};
-	struct OwnIdentityInfo
-	{
-		bool valid = false;
-		OwnIdentityKind kind = OwnIdentityKind::None;
-		int rating = -1;
-		std::string callsign;
-		std::string airport_icao;
-	};
 	struct RestrictionFailureFlags
 	{
 		bool suffix = false;
@@ -784,38 +773,33 @@ private:
 		const RouteMismatchDetail& detail) const;
 
 	//==========================================================
-	// 17. Active airport helpers
+	// 17. Controller scope and active airport helpers
 	//==========================================================
-	void ResetActiveAirportState();
-
-	void TryLockActiveAirportFromFlightPlan_(const FlightPlanRow& row);
-	void EnsureAirportDataRequested();
+	// Copy SDK identity inside the host callback; SDK controller handles cannot be cached.
+	struct ControllerIdentity {
+		bool valid = false;
+		std::string callsign;
+		int facility = -1;
+		bool is_controller = false;
+		bool operator==(const ControllerIdentity&) const = default;
+	};
+	using ControllerScopes = std::unordered_map<std::string, std::vector<std::string>>;
+	struct ControllerScopeLoadResult {
+		ControllerScopes positions;
+		std::string error;
+		unsigned long long generation = 0;
+		bool success = false;
+	};
+	bool UpdateControllerIdentity_();
+	bool LoadControllerScopes_(std::stop_token st, ControllerScopes& positions, std::string& error);
+	void ServiceControllerScopeLookup_();
+	void RefreshDepartureAirports_();
+	std::string ControllerScopeDescription_() const;
+	bool IsDepartureAirportSelected_(const std::string& airport) const;
+	std::shared_ptr<const AirportValidationData> AirportSnapshotFor_(const std::string& airport) const;
 
 	bool ExtractSingleAirportToObject_(const rapidjson::Document& in,
-		const std::string& airport_icao,
-		rapidjson::Document& out) const;
-
-	OwnControllerInfo GetOwnControllerInfo_() const;
-
-	OwnIdentityInfo GetOwnIdentityInfo_() const;
-
-	bool TryExtractAirportFromControllerCallsign_(const std::string&
-		callsign,
-		std::string& out_icao) const;
-
-	bool UpdateOwnIdentityIfChanged_(OwnIdentityInfo& out_info);
-
-	void ResolveActiveAirport_(const OwnIdentityInfo& self);
-
-	void SetActiveAirport_(const std::string& airport,
-		ActiveAirportSource source);
-
-	void ClearActiveAirport_();
-
-	const char* OwnIdentityKindToString_(OwnIdentityKind kind) const;
-
-	const char* ActiveAirportSourceToString_(ActiveAirportSource
-		source) const;
+		const std::string& airport_icao, rapidjson::Document& out) const;
 
 	//==========================================================
 	// 18. Flight plan tracking helpers
@@ -833,7 +817,6 @@ private:
 
 	void ResetTrackedFlightPlans_();
 
-	bool CanValidateFlightPlans_() const;
 
 	FlightPlanRow BuildFlightPlanRow_(const EuroScopePlugIn::CFlightPlan& flightPlan) const;
 
@@ -876,28 +859,38 @@ private:
 	// 20. Private state
 	//==========================================================
 	std::string base_url_;
+	// Declared before jthreads so queue state outlives workers, including construction unwind.
+	vfpc::WorkerNotificationQueue worker_notifications_;
 	// version checking
 	std::jthread version_thread_;
 
 	// airport worker
 	std::jthread airport_thread_;
 
-	// pending snapshot produced by worker, applied on main thread
+	// Worker results are accepted only for the current selection generation.
 	std::mutex pending_mtx_;
-	std::shared_ptr<AirportValidationData> pending_snapshot_;
+	AirportSnapshots pending_snapshots_;
+	std::vector<std::string> pending_failures_;
+	unsigned long long pending_generation_ = 0;
 	std::atomic_bool pending_ready_{ false };
-
-	// active airports tracking (from tag items)
+	std::atomic<unsigned long long> airport_generation_{ 0 };
 	mutable std::mutex active_mtx_;
-	std::string active_airport_;
-	bool active_airport_locked_ = false; // true, once airport has been determined.
+	std::vector<std::string> departure_airports_; // Sorted, unique ICAOs.
+	bool departure_selection_initialised_ = false;
 
-	ActiveAirportSource active_airport_source_ = ActiveAirportSource::None;
-	std::string last_own_callsign_;
-	int last_own_rating_ = -1;
-	bool last_own_identity_valid_ = false;
-	bool airport_data_requested_ = false; // prevents repeated reload requests.
-	std::unordered_map<std::string, int> origin_counts_;
+	// Host-callback-owned identity/cache. Only the pending result crosses the worker
+	// boundary, under its mutex. Scope publication precedes airport publication.
+	ControllerIdentity controller_identity_;
+	ControllerScopes controller_scopes_;
+	bool controller_scopes_available_ = false;
+	bool controller_scope_reload_requested_ = false;
+	bool controller_scope_load_inflight_ = false;
+	unsigned long long controller_scope_generation_ = 0;
+	std::string controller_scope_last_error_;
+	std::string controller_scope_description_ = "Controller scope has not been resolved."; // active_mtx_
+	std::jthread controller_scope_thread_;
+	std::mutex controller_scope_pending_mtx_;
+	std::optional<ControllerScopeLoadResult> controller_scope_pending_;
 
 	bool disconnect_cleanup_done_ = false;
 

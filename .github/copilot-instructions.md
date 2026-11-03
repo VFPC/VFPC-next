@@ -189,34 +189,32 @@ Prepare airport data and parse JSON off-thread. Publish only complete, valid imm
 
 ## Airport Selection — Accepted Policy
 
-[ADR-001](../Documentation/docs/adr/ADR-001.md) defines the agreed architecture:
+[ADR-003](../Documentation/docs/adr/ADR-003.md), accepted on 2 November 2026,
+supersedes ADR-001 and ADR-002's earlier advisory-only UKCP policy.
 
-| EuroScope facility | Validation airport selection |
+| Recognised callsign suffix | Airport-selection authority |
 |---|---|
-| DEL / GND / TWR | One airport identified from the controller callsign |
-| APP / CTR | Departure-active airports from EuroScope Runway Activity |
-| OBS | Departure-active airports from Runway Activity, without assuming controller responsibility |
-| Unknown facility | Fall back to departure-active airports from Runway Activity |
+| DEL / GND / TWR | One UKCP `top_down` airport matching the callsign's airport prefix, independent of Runway Activity |
+| APP / CTR | Departure-active Runway Activity airports intersected with the exact UKCP position's `top_down` list |
+| OBS | Departure-active Runway Activity airports, without a UKCP coverage filter |
+| Unknown operational position, unsupported suffix, or empty mapping | Pause validation with an explanation |
 
-- Controller rating must not determine validation scope.
-- Departure-list membership must not automatically be treated as authoritative controller responsibility.
-- For DEL/GND/TWR, Runway Activity is diagnostic: it must not replace or expand the callsign-derived scope. If that airport is not departure-active, issue a configuration warning without excluding it from validation; ordinary validation prerequisites still apply.
-- Handle malformed or unrecognised callsigns safely. The fallback for DEL/GND/TWR when an airport cannot be reliably identified, and the classification of FSS positions, remain unresolved. Do not invent rules for them.
-- OBS selection uses Runway Activity; do not infer or lock a single airport from repeated IFR flight-plan origins. Preserve unrelated flight-plan tracking and caching.
+- Full normalised callsigns are matched exactly; sector identifiers must not be removed.
+- Callsign suffix selects the mode; facility and server controller permission are supporting diagnostics. In particular, `SCO_CTR` with APP facility retains area selection.
+- Do not use controller rating or departure-list membership to establish responsibility.
+- The SDK does not document an OBS facility value. Do not confuse observer rating with facility or treat `IsController()==false` as an observer test.
+- Local scope remains eligible if departure Runway Activity omits its airport; warn without removing eligibility.
+- Preserve per-flight assigned departure-runway gating and origin-based airport snapshots.
 
-### Implementation Status
+## UKCP Scope Cache and Recovery
 
-As recorded in ADR-001, the inspected working source contains multi-airport Runway Activity selection, snapshot lookup by flight-plan origin, selection-change revalidation and loading for multiple selected airports. The facility/callsign-specific policy above has not yet been implemented, and multi-airport behaviour has not been confirmed through live EuroScope testing. Accepted policy must not be described as current, tested functionality.
-
----
-
-## UKCP Advisory Guidance
-
-[ADR-002](../Documentation/docs/adr/ADR-002.md) requires UKCP controller-position information to remain advisory only. For a recognised controller callsign with a nonempty `top_down` list, compare departure-active Runway Activity airports against that list. Unexpected airports require advisory warnings in EuroScope and the vFPC log, identifying the callsign and airport, explaining the mismatch and recommending a Runway Activity check. Avoid unchanged duplicate warnings when the relevant selection and mapping have not changed.
-
-Empty mappings mean unknown coverage. Empty mappings, unknown positions and API failures must not disrupt constraint loading or flight-plan validation; log appropriate diagnostics. UKCP must never add, remove, filter or otherwise determine the effective validation airport set, block otherwise eligible validation, or automatically change Runway Activity settings. A match is not proof of actual operational responsibility.
-
-These are accepted requirements, not claims of implementation or testing. The exact warning presentation, cache lifetime, refresh interval, retry strategy and duplicate-suppression mechanism remain unresolved. UKCP loading must respect the nonblocking callback safeguards below.
+- Load `https://ukcp.vatsim.uk/api/controller-positions-v2` off-thread and validate the entire replacement lookup before publication.
+- Retain the current session's valid lookup if a refresh fails. Do not broaden scope when data is missing, malformed, unmatched or explicitly empty.
+- Refresh on connection and `.vfpc scope reload`; `.vfpc scope` reports current scope/cache status. OBS selection can operate without UKCP data.
+- Clear the cache on disconnect; reject late results from an earlier connection generation. No disk cache or periodic retry is introduced.
+- UKCP `top_down` describes configured coverage; it does not establish live staffing, delegation or operational ownership.
+- Workers must not call EuroScope or store SDK handles. Publish plain data through the protected pending-result slot; consume it in the host callback before airport results.
+- Debug and Release Win32 builds passed on 2 November 2026 with zero warnings/errors. User-operated normal-scope and isolated simulated-failure Sweatbox checks passed on 2–3 November; see [verification record](../Documentation/reviews/Controller_Scope_Sweatbox_Results.md). Real transport failures, malformed responses and concurrency/race cases remain unverified. Keep diagnostic hooks out of production source.
 
 ---
 

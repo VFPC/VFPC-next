@@ -6,8 +6,8 @@ EuroScope Departure List.
 
 ## Normal Operation
 
-vFPC validates IFR departure flight plans for the active departure airport
-using the currently loaded validation data.
+vFPC validates IFR departure flight plans for the airports selected within
+the current controller scope, using each flight's origin-airport data.
 
 A flight plan is normally validated when:
 
@@ -20,6 +20,44 @@ VFR flight plans are not validated.
 !!! note
     vFPC requires a departure runway to be assigned before flight plan
     validation can take place.
+
+## Controller Scope
+
+vFPC matches the full controller callsign against UKCP controller-position data.
+For a recognised airport-specific DEL, GND or TWR position, it selects the mapped
+airport even when that airport is not departure-active in Runway Activity. A
+warning explains the missing Runway Activity selection; it does not remove the
+airport from scope.
+
+For APP and CTR positions, vFPC uses only departure-active Runway Activity
+airports listed in that position's UKCP `top_down` coverage. Airports outside
+that list are excluded from constraint loading and validation, with an
+explanation in the EuroScope message window and vFPC log. Arrival-only selection
+does not enable departure validation.
+
+For a callsign ending in `_OBS`, departure-active Runway Activity airports define
+the review scope without a UKCP filter. No airport is inferred from aircraft in
+the Departure List. UKCP coverage describes configured position coverage; it
+does not determine which other controllers are online or resolve delegation.
+
+Unrecognised operational positions, unsupported suffixes and empty UKCP coverage
+pause validation. Flights outside the selected scope display `OFF`. In-scope
+flights still wait for airport data and their own assigned departure runway;
+these pending states display `PDG`.
+
+### Scope Status and Recovery
+
+- `.vfpc scope` displays the selected airports, selection explanation and UKCP
+  lookup status.
+- `.vfpc scope reload` requests fresh UKCP position data. It does not change the
+  airport constraint source or EuroScope Runway Activity settings.
+
+UKCP data is held in memory for the connected session and loaded on connection.
+A failed refresh retains valid session data. With no usable lookup, operational
+validation pauses; OBS selection remains available. There is no automatic retry
+loop: use the reload command after a failure. Disconnecting clears the scope
+cache. A failure to read Runway Activity pauses APP/CTR/OBS selection; saving the
+Runway Activity dialog requests a new scan. Fixed local scope remains eligible.
 
 ## The FPL Column
 
@@ -36,7 +74,7 @@ For example:
 - <span class="vfpc-tag vfpc-tag--red">RTE</span> — the route requires attention.
 - <span class="vfpc-tag vfpc-tag--yellow">PDG</span> — validation is pending.
 - <span class="vfpc-tag vfpc-tag--grey">VFR</span> — the flight plan is VFR and is not validated.
-- <span class="vfpc-tag vfpc-tag--grey">OFF</span> — validation has been disabled for the flight plan.
+- <span class="vfpc-tag vfpc-tag--grey">OFF</span> — the flight is outside the selected controller scope, checks are disabled, or EuroScope is disconnected.
 - <span class="vfpc-tag vfpc-tag--cyan">OVR</span> — a controller override has been applied.
 
 The code is intended to provide a quick indication only. See the

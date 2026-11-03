@@ -10,8 +10,11 @@ The preceding read-only audit found no ADR files, authoritative register or esta
 
 | ID | Title | Decision status | Implementation status |
 |---|---|---|---|
-| [ADR-001](ADR-001.md) | Departure Airport Selection and Validation Scope | Accepted | Working source contains multi-airport Runway Activity selection; agreed facility/callsign policy not yet implemented; multi-airport behaviour not yet confirmed through live EuroScope testing |
-| [ADR-002](ADR-002.md) | UKCP Advisory Validation of Airport Selections | Accepted | No airport-selection advisory integration identified during drafting; not confirmed implemented or tested |
+| [ADR-001](ADR-001.md) | Departure Airport Selection and Validation Scope | Superseded by ADR-003 | Working source contains multi-airport Runway Activity selection; agreed facility/callsign policy not yet implemented; multi-airport behaviour not yet confirmed through live EuroScope testing |
+| [ADR-002](ADR-002.md) | UKCP Advisory Validation of Airport Selections | Superseded by ADR-003 | No airport-selection advisory integration identified during drafting; not confirmed implemented or tested |
+| [ADR-003](ADR-003.md) | Controller Scope from UKCP Position Coverage | Accepted, 2 November 2026 | Working source builds passed; normal scope, simulated failure/recovery and OFF/VFR reporting Sweatbox checks passed; see verification record for remaining limits |
+
+## Historical notes for ADR-001 and ADR-002
 
 Acceptance was recorded on 24 October 2026 following the project owner's explicit instruction. It does not imply complete implementation, successful testing or release.
 
@@ -49,3 +52,7 @@ Accepted ADRs are authoritative architectural requirements. Before proposing or 
 The [development instructions](../../../.github/copilot-instructions.md), [handover](../../../VFPC_EnRoute_Support_Handover.md) and [user guide](../using-vfpc.md) contain older architectural descriptions. ADR-001 records the known discrepancies. The handover was untracked at the time of the audit.
 
 This initial documentation change does not update those documents or MkDocs navigation. Reconciliation remains separate work requiring authorization. Neither ADR should be read as a claim that those discrepancies have already been fixed.
+
+## Current authority
+
+[ADR-003](ADR-003.md) supersedes the selection and advisory-only policies above following the project owner's explicit agreement to UKCP filtering and subsequent authorisation of source changes. Historical statements about advisory-only UKCP use do not apply to the new policy. UKCP remains configured coverage, not proof of live operational responsibility.
