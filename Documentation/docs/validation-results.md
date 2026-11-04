@@ -107,7 +107,8 @@ outside the selected controller scope, checks have been disabled using
 **Toggle Checks**, or EuroScope is disconnected.
 
 For a scope exclusion, use **Show Checks (SUMMARY)** or **Show Checks (FULL)**
-to read the origin/scope explanation, and use `.vfpc scope` to inspect the selected
+to read the origin/scope explanation. Only when advised by the vFPC team, use
+`.vfpc scope` to inspect the selected
 airports. Selecting **Toggle Checks** does not bring an excluded airport into scope.
 
 If checks were explicitly disabled, select **Toggle Checks** again to re-enable

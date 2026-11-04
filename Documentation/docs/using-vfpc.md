@@ -45,7 +45,10 @@ pause validation. Flights outside the selected scope display `OFF`. In-scope
 flights still wait for airport data and their own assigned departure runway;
 these pending states display `PDG`.
 
-### Scope Status and Recovery
+### Support Commands - vFPC Team Advice Only
+
+These commands are for troubleshooting only. Use them only when advised by the
+vFPC team; they are not required for normal setup or operation.
 
 - `.vfpc scope` displays the selected airports, selection explanation and UKCP
   lookup status.
@@ -55,7 +58,7 @@ these pending states display `PDG`.
 UKCP data is held in memory for the connected session and loaded on connection.
 A failed refresh retains valid session data. With no usable lookup, operational
 validation pauses; OBS selection remains available. There is no automatic retry
-loop: use the reload command after a failure. Disconnecting clears the scope
+loop. If a lookup failure persists, contact the vFPC team for advice. Disconnecting clears the scope
 cache. A failure to read Runway Activity pauses APP/CTR/OBS selection; saving the
 Runway Activity dialog requests a new scan. Fixed local scope remains eligible.
 

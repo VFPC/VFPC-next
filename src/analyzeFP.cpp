@@ -4221,7 +4221,7 @@ void CVFPCPlugin::ServiceControllerScopeLookup_()
 				controller_scope_last_error_ = completed->error;
 				LOG_WARN("UKCP controller scope load failed: {}; cached_data_retained={}",
 					completed->error, controller_scopes_available_);
-				SendToConsole(vfpc::urgent, "UKCP scope lookup failed. {} {} Use '.vfpc scope reload' to retry.",
+				SendToConsole(vfpc::urgent, "UKCP scope lookup failed. {} {} If the problem persists, contact the vFPC team for advice.",
 					completed->error, controller_scopes_available_
 					? "Existing session scope data retained."
 					: "Operational validation is paused; OBS Runway Activity selection remains available.");
@@ -4251,7 +4251,7 @@ void CVFPCPlugin::ServiceControllerScopeLookup_()
 		controller_scope_load_inflight_ = false;
 		controller_scope_last_error_ = ex.what();
 		LOG_ERROR("Unable to start UKCP scope worker: {}", ex.what());
-		SendToConsole(vfpc::urgent, "Unable to start UKCP scope lookup. Use '.vfpc scope reload' to retry.");
+		SendToConsole(vfpc::urgent, "Unable to start UKCP scope lookup. If the problem persists, contact the vFPC team for advice.");
 		RefreshDepartureAirports_();
 	}
 }
@@ -4318,7 +4318,7 @@ void CVFPCPlugin::RefreshDepartureAirports_()
 	else if (!controller_scopes_available_) {
 		description = controller_scope_load_inflight_ || controller_scope_reload_requested_
 			? fmt::format("{}: UKCP controller scope data is loading; operational validation paused.", callsign)
-			: fmt::format("{}: UKCP controller scope data unavailable; validation paused. Use '.vfpc scope reload' to retry.", callsign);
+			: fmt::format("{}: UKCP controller scope data unavailable; validation paused. If the problem persists, contact the vFPC team for advice.", callsign);
 	}
 	else {
 		const auto position = controller_scopes_.find(callsign);
