@@ -1,4 +1,4 @@
-﻿//==============================================================
+//==============================================================
 // 1. Includes / globals / file-local state
 //==============================================================
 #include "stdafx.h"
@@ -28,8 +28,6 @@ namespace
 	std::mutex controller_override_mtx_;
 	std::unordered_set<std::string> controller_override_callsigns_;
 
-	std::mutex skipped_airport_log_mtx_;
-	std::unordered_set<std::string> skipped_airport_logged_;
 
 	int relCount = 0;
 
@@ -40,8 +38,8 @@ namespace
 
 	/***********************************************************
 	* The following are used with the state machine to track the
-	* state of the plugin's connection to the API and whether
-	* it has a callsign ready to check flight plans for.
+	* state of the EuroScope connection and whether a local
+	* controller callsign is available for scope resolution.
 	***********************************************************/
 	enum class SessionState {
 		Disconnected,
@@ -341,6 +339,36 @@ namespace
 } // end namespace
 
 
+// Diagnostic helpers must never change validation or cleanup control flow.
+CVFPCPlugin::AirportValidationData::~AirportValidationData() noexcept
+{
+	try {
+		LOG_INFO("Airport snapshot releasing: id={} airport='{}' source='{}' dom_used_bytes={} dom_capacity_bytes={} (before document destruction)",
+			snapshot_id, requested_airport, load_source,
+			airport_json.GetAllocator().Size(), airport_json.GetAllocator().Capacity());
+	}
+	catch (...) {}
+}
+
+void CVFPCPlugin::PublishAirportSnapshot_(
+	std::shared_ptr<const AirportValidationData> next, const char* reason) noexcept
+{
+	try {
+		std::lock_guard<std::mutex> g(active_mtx_);
+		if (next) {
+			if (!std::binary_search(departure_airports_.begin(), departure_airports_.end(), next->requested_airport)) return;
+			LOG_INFO("Airport snapshot published: id={} airport='{}' source='{}' reason='{}'",
+				next->snapshot_id, next->requested_airport, next->load_source, reason);
+			airport_snapshots_[next->requested_airport] = std::move(next);
+		}
+		else {
+			LOG_INFO("Airport snapshots cleared: count={} reason='{}'", airport_snapshots_.size(), reason);
+			airport_snapshots_.clear();
+		}
+	}
+	catch (...) {}
+}
+
 bool CVFPCPlugin::IsAirwayToken_(const std::string& token)
 {
 	// Allow common ATS route designators:
@@ -461,6 +489,8 @@ CVFPCPlugin::CVFPCPlugin(void) :CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 
 CVFPCPlugin::~CVFPCPlugin()
 {
+	// Stop notification production before cancellation can produce further diagnostics.
+	worker_notifications_.Close();
 	LOG_DEBUG("Stopping version thread ....");
 	if (version_thread_.joinable())
 		version_thread_.request_stop();
@@ -469,14 +499,45 @@ CVFPCPlugin::~CVFPCPlugin()
 	if (airport_thread_.joinable())
 		airport_thread_.request_stop();
 
+	LOG_DEBUG("Stopping controller scope worker thread ....");
+	if (controller_scope_thread_.joinable())
+		controller_scope_thread_.request_stop();
+
+	// Request all stops before waiting. Workers must finish while their
+	// state and logging are still available, and before snapshots are released.
+	if (airport_thread_.joinable())
+		airport_thread_.join();
+	if (version_thread_.joinable())
+		version_thread_.join();
+	if (controller_scope_thread_.joinable())
+		controller_scope_thread_.join();
+
+	// No UI flush during unload. Workers are joined while queue/logging still live.
+	worker_notifications_.Discard();
+	try {
+		const auto stats = worker_notifications_.Stats();
+		if (stats.rejected || stats.failed || stats.delivery_failed || stats.discarded || stats.closed)
+			LOG_WARN("Worker notifications at shutdown: rejected_batches={} failures={} delivery_failures={} discarded_lines={} closed_batches={}",
+				stats.rejected, stats.failed, stats.delivery_failed, stats.discarded, stats.closed);
+	}
+	catch (...) {} // Loss reporting must not break teardown or recurse into the queue.
+
+	{
+		std::lock_guard lk(pending_mtx_);
+		pending_snapshots_.clear();
+		pending_failures_.clear();
+		pending_ready_.store(false, std::memory_order_release);
+	}
+	PublishAirportSnapshot_(nullptr, "plugin shutdown");
+
 	if (thisVersion) {
 		free(thisVersion);
 		thisVersion = nullptr;
 	}
 
-	airport_data_.store(nullptr, std::memory_order_release);
-
 	LOG_INFO("Plugin logging shutting down ....");
+	if (auto logger = spdlog::get(VFPC_LOGGER_NAME))
+		logger->flush();
 	spdlog::shutdown();
 }
 
@@ -485,6 +546,21 @@ void CVFPCPlugin::SendToConsole(const char* msg, bool urgent)
 	DisplayUserMessage("VFPC", VFPC_LOGGER_NAME, msg,
 		false, true, urgent, urgent,
 		false);
+}
+
+// Deliver without queue locks. No worker calls this SDK-facing helper.
+void CVFPCPlugin::DrainWorkerNotifications_() noexcept
+{
+	worker_notifications_.Drain([this](const char* text, bool urgent) {
+		if (text == vfpc::WorkerNotificationQueue::OverflowMessage) {
+			try {
+				const auto stats = worker_notifications_.Stats();
+				LOG_WARN("Worker notification loss: rejected_batches={} failures={}", stats.rejected, stats.failed);
+			}
+			catch (...) {}
+		}
+		SendToConsole(text, urgent);
+	});
 }
 
 void CVFPCPlugin::ApplyTagDisplayFromResult_(const ValidationResult& result,
@@ -541,6 +617,8 @@ void CVFPCPlugin::ApplyTagDisplayFromResult_(const ValidationResult& result,
 	}
 }
 
+// Report the stored validation reason: NotChecked includes both out-of-scope
+// and non-IFR flights. Reporting must not reclassify either flight's eligibility.
 void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& result, 
 	ResultsView view)
 {
@@ -552,6 +630,7 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 
 	if (view == ResultsView::Full) {
 		SendToConsole("{} {}", text(VF_CALLSIGN), result.itemString);
+		SendToConsole("Origin: {}", text(VF_ORIGIN));
 		SendToConsole("SID: {}", text(VF_SID));
 		SendToConsole("Destination: {}", text(VF_DESTINATION));
 		SendToConsole("Exit Point: {}", text(VF_EXIT_POINT));
@@ -619,7 +698,16 @@ void CVFPCPlugin::OutputValidationResultToConsole_(const ValidationResult& resul
 
 	case ValidationStatus::NotChecked:
 		SendToConsole("Not checked");
-		SendToConsole("Flight plan is VFR");
+		if (result.itemString == "OFF") {
+			// The validator already records why the origin is outside scope.
+			// Do not call an excluded IFR flight VFR merely because it was skipped.
+			const auto& reason = result.fields[VF_ORIGIN].full;
+			SendToConsole("{}", IsUsefulSummaryText_(reason)
+				? reason : "Origin is outside the selected controller scope.");
+		}
+		else {
+			SendToConsole("Flight plan is VFR");
+		}
 		break;
 
 	default:
@@ -664,7 +752,9 @@ std::string CVFPCPlugin::TagMnemonicFromResult_(const ValidationResult& result) 
 		return "PDG";
 	}
 	if (result.status == ValidationStatus::NotChecked) {
-		return "VFR";
+		// Preserve scope exclusion through cache/log formatting. The flight-rules
+		// gate separately supplies VFR for eligible non-IFR plans.
+		return result.itemString == "OFF" ? "OFF" : "VFR";
 	}
 	// Priority order: most important / most actionable first
 	if (FieldNeedsAttention_(result, VF_SYNTAX)) return "SYN";
@@ -880,8 +970,10 @@ bool CVFPCPlugin::APICall(const std::string& base_url,
 
 	if (!webCall(url, buf, st))
 	{
-		SendToConsole(vfpc::urgent, "An error occurred whilst downloading data.The plugin has been disabled.");
-		SendToConsole(vfpc::urgent, "Please restart EuroScope to try again. (Note:.vfpc load will NOT work.");
+		QueueWorkerNotifications_([&](auto& batch) {
+			batch.Add(fmt::format("An error occurred whilst downloading data.The plugin has been disabled."), true);
+			batch.Add(fmt::format("Please restart EuroScope to try again. (Note:.vfpc load will NOT work."), true);
+		});
 
 		LOG_ERROR("API Call to {} : Failed - No Data Returned", url);
 
@@ -898,9 +990,10 @@ bool CVFPCPlugin::APICall(const std::string& base_url,
 	out.Parse(buf.data(), buf.size());
 
 	if (out.HasParseError()) {
-		SendToConsole(vfpc::urgent,
-			"An error occurred whilst reading data. The plugin will not automatically attempt to reload from the API. "
-			"To restart data fetching, type \".vfpc load\".");
+		QueueWorkerNotifications_([&](auto& batch) {
+			batch.Add(fmt::format("An error occurred whilst reading data. The plugin will not automatically attempt to reload from the API. "
+			"To restart data fetching, type \".vfpc load\"."), true);
+		});
 
 		LOG_ERROR("API Call To {}: JSON parse error: {} (Offset: {})",
 			url, rapidjson::GetParseError_En(out.GetParseError()), out.GetErrorOffset());
@@ -930,9 +1023,11 @@ bool CVFPCPlugin::fileCall(rapidjson::Document& out)
 		ss << ifs.rdbuf();
 		ifs.close();
 		if (out.Parse<0>(ss.str().c_str()).HasParseError()) {
-			SendToConsole(vfpc::urgent, "An error occurred whilst parsing data. The plugin will not automatically attempt to reload.");
-			SendToConsole(vfpc::urgent, "To restart data fetching from the API, type '{}{}'", COMMAND_PREFIX, LOAD_COMMAND);
-			SendToConsole(vfpc::urgent, "To load data from sid.json, type '{}{}'", COMMAND_PREFIX, FILE_COMMAND);
+			QueueWorkerNotifications_([&](auto& batch) {
+				batch.Add(fmt::format("An error occurred whilst parsing data. The plugin will not automatically attempt to reload."), true);
+				batch.Add(fmt::format("To restart data fetching from the API, type '{}{}'", COMMAND_PREFIX, LOAD_COMMAND), true);
+				batch.Add(fmt::format("To load data from sid.json, type '{}{}'", COMMAND_PREFIX, FILE_COMMAND), true);
+			});
 
 			LOG_DEBUG("Config Parse: {} (Offset: {})\n'", rapidjson::GetParseError_En(out.GetParseError()),
 				out.GetErrorOffset());
@@ -944,8 +1039,10 @@ bool CVFPCPlugin::fileCall(rapidjson::Document& out)
 		}
 	}
 	else {
-		SendToConsole(vfpc::urgent, "File {} not found. To restart data fetching from the API, type '{}{}'", 
-			path, COMMAND_PREFIX, LOAD_COMMAND);
+		QueueWorkerNotifications_([&](auto& batch) {
+			batch.Add(fmt::format("File {} not found. To restart data fetching from the API, type '{}{}'",
+			path, COMMAND_PREFIX, LOAD_COMMAND), true);
+		});
 
 		LOG_WARN("File not found {}", DATA_FILE);
 
@@ -1218,10 +1315,10 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 				latestVersionText,
 				minimumVersionText);
 
-			SendToConsole(
-				vfpc::urgent,
-				"Failed to parse version information from the API - "
-				"the plugin has been disabled.");
+			QueueWorkerNotifications_([&](auto& batch) {
+				batch.Add(fmt::format("Failed to parse version information from the API - "
+				"the plugin has been disabled."), true);
+			});
 
 			return false;
 		}
@@ -1257,17 +1354,14 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 				latestVersionText);
 
 			if (minchange) {
-				SendToConsole(
-					vfpc::urgent,
-					"VFPC {} is no longer supported. "
+				QueueWorkerNotifications_([&](auto& batch) {
+					batch.Add(fmt::format("VFPC {} is no longer supported. "
 					"Minimum supported: v{}. Latest available: v{}.",
 					VFPC_DISPLAY_VERSION,
 					minimumVersionText,
-					latestVersionText);
-
-				SendToConsole(
-					vfpc::urgent,
-					"VFPC has been disabled. Please update the VFPC DLL.");
+					latestVersionText), true);
+					batch.Add(fmt::format("VFPC has been disabled. Please update the VFPC DLL."), true);
+				});
 			}
 		}
 		else if (CompareVersionVectors_(
@@ -1281,15 +1375,13 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 				latestVersionText);
 
 			if (curchange) {
-				SendToConsole(
-					vfpc::urgent,
-					"VFPC update available: installed {}; latest v{}.",
+				QueueWorkerNotifications_([&](auto& batch) {
+					batch.Add(fmt::format("VFPC update available: installed {}; latest v{}.",
 					VFPC_DISPLAY_VERSION,
-					latestVersionText);
-
-				SendToConsole(
-					"You may continue using this version, "
-					"but please update when convenient.");
+					latestVersionText), true);
+					batch.Add(fmt::format("You may continue using this version, "
+					"but please update when convenient."), false);
+				});
 			}
 
 			out = true;
@@ -1306,8 +1398,9 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 	}
 	else {
 		LOG_ERROR("Version Call: Plugin Version Data Not Found");
-		SendToConsole(vfpc::urgent,
-			"Failed to check for updates - the plugin has been disabled.");
+		QueueWorkerNotifications_([&](auto& batch) {
+			batch.Add(fmt::format("Failed to check for updates - the plugin has been disabled."), true);
+		});
 	}
 
 	const auto* airacCycle = FindMemberValue(version, "cycle");
@@ -1323,7 +1416,9 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 	}
 	else {
 		LOG_ERROR("Version Call: AIRAC Cycle/Date Data Not Found");
-		SendToConsole(vfpc::urgent, "Failed to read AIRAC cycle/date - the plugin has been disabled.");
+		QueueWorkerNotifications_([&](auto& batch) {
+			batch.Add(fmt::format("Failed to read AIRAC cycle/date - the plugin has been disabled."), true);
+		});
 	}
 
 	bool updatefail = false;
@@ -1398,7 +1493,9 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 		updatefail = true;
 	}
 	if (updatefail) {
-		SendToConsole(vfpc::urgent, "Failed to read date/last update record from API.");
+		QueueWorkerNotifications_([&](auto& batch) {
+			batch.Add(fmt::format("Failed to read date/last update record from API."), true);
+		});
 		apiUpdated = true;
 	}
 	else {
@@ -1456,7 +1553,9 @@ bool CVFPCPlugin::VersionCall_Worker(PluginConfig plugin_config, std::stop_token
 	}
 
 	if (timefail) {
-		SendToConsole(vfpc::urgent, "Failed to read day/time from API.");
+		QueueWorkerNotifications_([&](auto& batch) {
+			batch.Add(fmt::format("Failed to read day/time from API."), true);
+		});
 	}
 	return out;
 }
@@ -1527,12 +1626,11 @@ std::string CVFPCPlugin::RouteOutputFailureDetail_(const rapidjson::Value& const
 //==============================================================
 void CVFPCPlugin::getSids()
 {
-	const bool already_requested =
-		airport_reload_requested_.exchange(true,
-			std::memory_order_acq_rel);
-	if (!already_requested) {
-		LOG_TRACE("Airport/SID reload requested.");
-	}
+	airport_generation_.fetch_add(1, std::memory_order_acq_rel);
+	if (airport_thread_.joinable()) airport_thread_.request_stop();
+	PublishAirportSnapshot_(nullptr, "reload requested");
+	airport_reload_requested_.store(true, std::memory_order_release);
+	RevalidateTrackedFlightPlans_("airport reload requested");
 }
 
 bool CVFPCPlugin::FetchSidsInto_(SidSource source,
@@ -1560,12 +1658,13 @@ bool CVFPCPlugin::FetchSidsInto_(SidSource source,
 
 		if (!ExtractSingleAirportToObject_(full_file_data, activeAirportIcao, out)) {
 
-			SendToConsole(vfpc::urgent,
-				"Airport '{}' was not found in {}. Use '{}{}' to return to API loading.",
+			QueueWorkerNotifications_([&](auto& batch) {
+				batch.Add(fmt::format("Airport '{}' was not found in {}. Use '{}{}' to return to API loading.",
 				activeAirportIcao,
 				DATA_FILE,
 				COMMAND_PREFIX,
-				LOAD_COMMAND);
+				LOAD_COMMAND), true);
+			});
 
 			LOG_ERROR("FetchSidsInto_: ExtractSingleAirportToObject_ failed for {}", activeAirportIcao);
 
@@ -2494,6 +2593,13 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	// 1. IFR gating
 	// -----------------------------
 
+	if (!IsDepartureAirportSelected_(row.origin)) {
+		SetNotChecked_(validationResult, "OFF");
+		SetField_(validationResult, VF_ORIGIN, "Not Checked",
+			"Origin is outside the selected controller scope. " + ControllerScopeDescription_());
+		return validationResult;
+	}
+
 	if (!row.is_ifr) {
 		SetNotChecked_(validationResult, "VFR");
 
@@ -2507,7 +2613,7 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	}
 
 	// Read immutable validation data safely across threads.
-	auto validation_data = airport_data_.load(std::memory_order_acquire);
+	auto validation_data = AirportSnapshotFor_(row.origin);
 
 	// -----------------------------
 	// 2. Snapshot availability
@@ -2524,31 +2630,6 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	}
 
 	const rapidjson::Value& airport = validation_data->airport_json;
-
-	// -----------------------------
-	// 3. Active airport guard
-	// -----------------------------
-	std::string locked_airport;
-	bool airport_locked = false;
-	{
-		std::lock_guard<std::mutex> g(active_mtx_);
-		locked_airport = active_airport_;
-		airport_locked = active_airport_locked_;
-	}
-	if (airport_locked && !locked_airport.empty() && row.origin != locked_airport) {
-		SetNotChecked_(validationResult, "OFF");
-
-		SetField_(validationResult, VF_ORIGIN, "Not Checked",
-			"Flight plan origin does not match the active airport for this session.");
-
-		SetField_(validationResult, VF_SID, "Not Checked",
-			"Validation skipped because this flight plan is outside the active airport for the session.");
-
-		LOG_TRACE("ValidateFlightPlan_: callsign='{}' skipped because flight plan is outside the active airport for the session",
-			row.callsign);
-
-		return validationResult;
-	}
 
 	// ----------------------------------------------------------
 	// 4. Departure runway availability
@@ -4006,316 +4087,307 @@ vector<vector<string>> CVFPCPlugin::ReturnWithBoth(vector<vector<string>>& out,
 	return out;
 }
 
-// 8c. Active-airport session helpers
-void CVFPCPlugin::ResetActiveAirportState()
+// 8c. Controller-scope and active-airport session helpers (ADR-003)
+void CVFPCPlugin::OnAirportRunwayActivityChanged()
 {
-	{
-		std::lock_guard<std::mutex> g(active_mtx_);
-		active_airport_.clear();
-		active_airport_locked_ = false;
-		airport_data_requested_ = false;
-		origin_counts_.clear();
+	if (!is_initialised || GetConnectionType() == EuroScopePlugIn::CONNECTION_TYPE_NO) return;
+	try {
+		RefreshDepartureAirports_();
+	}
+	catch (const std::exception& ex) {
+		LOG_ERROR("Runway Activity airport scan failed: {}", ex.what());
+		SendToConsole(vfpc::urgent, "Unable to read Runway Activity airport selections.");
+	}
+	catch (...) {
+		LOG_ERROR("Runway Activity airport scan failed: unknown exception");
+		SendToConsole(vfpc::urgent, "Unable to read Runway Activity airport selections.");
 	}
 }
 
-void CVFPCPlugin::TryLockActiveAirportFromFlightPlan_(const	FlightPlanRow& row)
+bool CVFPCPlugin::IsDepartureAirportSelected_(const std::string& airport) const
 {
-	if (!row.is_ifr || row.origin.empty()) {
-		return;
-	}
+	std::lock_guard<std::mutex> g(active_mtx_);
+	return std::binary_search(departure_airports_.begin(), departure_airports_.end(), airport);
+}
 
-	bool should_lock = false;
-	std::string selected_airport;
+std::shared_ptr<const CVFPCPlugin::AirportValidationData>
+CVFPCPlugin::AirportSnapshotFor_(const std::string& airport) const
+{
+	std::lock_guard<std::mutex> g(active_mtx_);
+	const auto it = airport_snapshots_.find(airport);
+	return it == airport_snapshots_.end() ? nullptr : it->second;
+}
 
-	{
-		std::lock_guard<std::mutex> g(active_mtx_);
-		if (active_airport_source_ ==
-			ActiveAirportSource::ControllerIdentity) {
-			return;
+// Read only plain identity values in the host callback. IsValid() alone does not
+// establish that a local callsign is ready; facility/rating cannot define coverage.
+bool CVFPCPlugin::UpdateControllerIdentity_()
+{
+	ControllerIdentity next;
+	if (GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_NO) {
+		const auto myself = ControllerMyself();
+		if (myself.IsValid()) {
+			const char* callsign = myself.GetCallsign();
+			next.callsign = normalize_callsign(callsign ? callsign : "");
+			next.valid = !next.callsign.empty();
+			next.facility = myself.GetFacility();
+			next.is_controller = myself.IsController();
 		}
+	}
+	if (next == controller_identity_) return false;
+	controller_identity_ = std::move(next);
+	LOG_INFO("Controller identity: callsign='{}' valid={} facility={} server_controller={}",
+		controller_identity_.callsign, controller_identity_.valid,
+		controller_identity_.facility, controller_identity_.is_controller);
+	return true;
+}
 
-		// If airport was only inferred, allow it to be corrected
-		// when another origin repeatedly appears.
-		if (active_airport_locked_ &&
-			active_airport_source_ == ActiveAirportSource::Inferred &&
-			row.origin != active_airport_) {
-
-			int& count = origin_counts_[row.origin];
-			count++;
-
-			LOG_TRACE("Inference correction: origin '{}' count={} while locked to '{}'",
-				row.origin, count, active_airport_);
-
-			const int SWITCH_THRESHOLD = 3;
-
-			if (count >= SWITCH_THRESHOLD) {
-				LOG_WARN("Changing inferred active airport from '{}' to '{}' after repeated mismatch",
-					active_airport_, row.origin);
-
-				active_airport_ = row.origin;
-				active_airport_locked_ = true;
-				active_airport_source_ = ActiveAirportSource::Inferred;
-				airport_data_requested_ = false;
-				origin_counts_.clear();
-
-				airport_data_.store(nullptr, std::memory_order_release);
-				airport_reload_requested_.store(true, std::memory_order_release);
+// Worker-only HTTP/schema validation. Build a complete replacement map: a bad
+// record, duplicate callsign or malformed airport must never widen cached scope.
+// Empty top_down arrays are valid data and deliberately select no airports.
+bool CVFPCPlugin::LoadControllerScopes_(std::stop_token st,
+	ControllerScopes& positions, std::string& error)
+{
+	constexpr const char* url = "https://ukcp.vatsim.uk/api/controller-positions-v2";
+	std::string body;
+	if (!webCall(url, body, st)) {
+		error = st.stop_requested() ? "Request cancelled." : "UKCP request failed; see the vFPC log.";
+		return false;
+	}
+	rapidjson::Document data;
+	data.Parse(body.data(), body.size());
+	if (data.HasParseError() || !data.IsArray() || data.Empty()) {
+		error = "UKCP response must be a nonempty JSON array of controller positions.";
+		return false;
+	}
+	ControllerScopes replacement;
+	for (const auto& position : data.GetArray()) {
+		if (st.stop_requested()) { error = "Request cancelled."; return false; }
+		const auto* callsign_value = FindMemberValue(position, "callsign");
+		const auto* airports_value = FindArrayMember(position, "top_down");
+		if (!callsign_value || !callsign_value->IsString() || !airports_value) {
+			error = "UKCP position has no valid callsign or top_down array.";
+			return false;
+		}
+		const std::string callsign = normalize_callsign(std::string(
+			callsign_value->GetString(), callsign_value->GetStringLength()));
+		if (callsign.empty() || callsign.find('\0') != std::string::npos ||
+			callsign.find_first_of(" \t\r\n") != std::string::npos) {
+			error = "UKCP position has a malformed callsign.";
+			return false;
+		}
+		std::vector<std::string> airports;
+		for (const auto& value : airports_value->GetArray()) {
+			if (!value.IsString()) { error = "UKCP top_down contains a non-string airport."; return false; }
+			const std::string airport = norm_icao(std::string(value.GetString(), value.GetStringLength()));
+			if (airport.size() != 4 || airport.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ") != std::string::npos) {
+				error = "UKCP top_down contains an invalid airport ICAO.";
+				return false;
 			}
-
-			return;
+			airports.push_back(airport);
 		}
-
-		if (active_airport_locked_) {
-			return;
-		}
-
-		int& count = origin_counts_[row.origin];
-		count++;
-
-		LOG_TRACE("Inference: origin '{}' count={}", row.origin, count);
-
-		const int LOCK_THRESHOLD = 3;
-		if (count >= LOCK_THRESHOLD) {
-			active_airport_ = row.origin;
-			active_airport_locked_ = true;
-			active_airport_source_ = ActiveAirportSource::Inferred;
-			airport_data_requested_ = false;
-			should_lock = true;
-			selected_airport = row.origin;
+		std::sort(airports.begin(), airports.end());
+		airports.erase(std::unique(airports.begin(), airports.end()), airports.end());
+		if (!replacement.emplace(callsign, std::move(airports)).second) {
+			error = "UKCP response contains duplicate controller callsigns.";
+			return false;
 		}
 	}
-
-	if (should_lock) {
-		LOG_INFO("Active airport inferred as '{}' after threshold reached", selected_airport);
-		EnsureAirportDataRequested();
-	}
-}
-
-void CVFPCPlugin::EnsureAirportDataRequested()
-{
-	std::string airport;
-	{
-		std::lock_guard<std::mutex> g(active_mtx_);
-		if (!active_airport_locked_ || active_airport_.empty() || airport_data_requested_) {
-			return;
-		}
-		airport = active_airport_;
-		airport_data_requested_ = true;
-	}
-	LOG_INFO("Requesting airport data for '{}'", airport);
-	getSids();
-}
-
-CVFPCPlugin::OwnControllerInfo CVFPCPlugin::GetOwnControllerInfo_()const
-{
-	OwnControllerInfo info{};
-
-	EuroScopePlugIn::CController me = ControllerMyself();
-	if (!me.IsValid()) {
-		return info;
-	}
-
-	info.valid = true;
-	info.rating = me.GetRating();
-	const char* cs = me.GetCallsign();
-	info.callsign = cs ? cs : "";
-
-	return info;
-}
-
-CVFPCPlugin::OwnIdentityInfo CVFPCPlugin::GetOwnIdentityInfo_() const
-{
-	OwnIdentityInfo info{};
-	const OwnControllerInfo self = GetOwnControllerInfo_();
-
-	info.valid = self.valid;
-	info.rating = self.rating;
-	info.callsign = self.callsign;
-
-	if (!self.valid) {
-		info.kind = OwnIdentityKind::None;
-		return info;
-	}
-
-	std::string upper = self.callsign;
-	std::transform(upper.begin(), upper.end(), upper.begin(),
-		[](unsigned char c) { return static_cast<char>(std::toupper
-		(c)); });
-
-	const auto pos = upper.find('_');
-	if (pos != std::string::npos) {
-		const std::string suffix = upper.substr(pos + 1);
-		if (suffix == "OBS") {
-			info.kind = OwnIdentityKind::Observer;
-			return info;
-		}
-	}
-
-	if (TryExtractAirportFromControllerCallsign_(self.callsign,
-		info.airport_icao)) {
-		info.kind = OwnIdentityKind::Controller;
-		return info;
-	}
-
-	info.kind = OwnIdentityKind::Unknown;
-	return info;
-}
-
-bool CVFPCPlugin::TryExtractAirportFromControllerCallsign_(const std::string& callsign,
-	std::string& out_icao) const
-{
-	out_icao.clear();
-
-	if (callsign.empty()) {
-		return false;
-	}
-
-	const auto pos = callsign.find('_');
-	if (pos == std::string::npos) {
-		return false;
-	}
-
-	std::string prefix = callsign.substr(0, pos);
-	std::string suffix = callsign.substr(pos + 1);
-	std::transform(prefix.begin(), prefix.end(), prefix.begin(),
-		[](unsigned char c) { return static_cast<char>(std::toupper
-		(c)); });
-
-	std::transform(suffix.begin(), suffix.end(), suffix.begin(),
-		[](unsigned char c) { return static_cast<char>(std::toupper
-		(c)); });
-
-	if (suffix == "OBS") {
-		return false;
-	}
-
-	if (prefix.size() != 4) {
-		return false;
-	}
-
-	if (!std::all_of(prefix.begin(), prefix.end(),
-		[](unsigned char c) { return std::isalpha(c) != 0; })) {
-		return false;
-	}
-
-	out_icao = prefix;
+	positions = std::move(replacement);
 	return true;
 }
 
-bool CVFPCPlugin::UpdateOwnIdentityIfChanged_(OwnIdentityInfo& out_info)
+// Host coordinator for the session cache. The worker never calls EuroScope and
+// hands off through one mutex-protected slot. Inflight stays set until consumed,
+// so a later request cannot overwrite an unread result. Failed refreshes retain
+// valid data; reconnect starts a new cache generation. No automatic retry loop.
+void CVFPCPlugin::ServiceControllerScopeLookup_()
 {
-	out_info = GetOwnIdentityInfo_();
-	const bool changed =
-		(out_info.valid != last_own_identity_valid_) ||
-		(out_info.rating != last_own_rating_) ||
-		(out_info.callsign != last_own_callsign_);
-
-	if (!changed) {
-		return false;
+	std::optional<ControllerScopeLoadResult> completed;
+	{
+		std::lock_guard lock(controller_scope_pending_mtx_);
+		completed.swap(controller_scope_pending_);
 	}
-
-	LOG_INFO("Own identity changed: valid={} callsign='{}' rating={}",
-		out_info.valid ? "true" : "false",
-		out_info.callsign,
-		out_info.rating);
-
-	last_own_identity_valid_ = out_info.valid;
-	last_own_rating_ = out_info.rating;
-	last_own_callsign_ = out_info.callsign;
-
-	return true;
+	if (completed) {
+		controller_scope_load_inflight_ = false;
+		if (completed->generation == controller_scope_generation_) {
+			if (completed->success) {
+				controller_scopes_ = std::move(completed->positions);
+				controller_scopes_available_ = true;
+				controller_scope_last_error_.clear();
+				LOG_INFO("UKCP controller scope cache published: {} positions", controller_scopes_.size());
+				SendToConsole(vfpc::urgent, "UKCP controller scope data loaded for {} positions.", controller_scopes_.size());
+			}
+			else {
+				controller_scope_last_error_ = completed->error;
+				LOG_WARN("UKCP controller scope load failed: {}; cached_data_retained={}",
+					completed->error, controller_scopes_available_);
+				SendToConsole(vfpc::urgent, "UKCP scope lookup failed. {} {} Use '.vfpc scope reload' to retry.",
+					completed->error, controller_scopes_available_
+					? "Existing session scope data retained."
+					: "Operational validation is paused; OBS Runway Activity selection remains available.");
+			}
+			RefreshDepartureAirports_();
+		}
+		else LOG_DEBUG("Discarding UKCP scope result for superseded session {}", completed->generation);
+	}
+	if (!controller_scope_reload_requested_ || controller_scope_load_inflight_) return;
+	controller_scope_reload_requested_ = false;
+	const auto generation = controller_scope_generation_;
+	controller_scope_load_inflight_ = true;
+	try {
+		controller_scope_thread_ = std::jthread([this, generation](std::stop_token st) {
+			ControllerScopeLoadResult result;
+			result.generation = generation;
+			try {
+				result.success = LoadControllerScopes_(st, result.positions, result.error);
+			}
+			catch (const std::exception& ex) { result.error = ex.what(); }
+			catch (...) { result.error = "Unexpected error reading UKCP controller scope data."; }
+			std::lock_guard lock(controller_scope_pending_mtx_);
+			controller_scope_pending_ = std::move(result);
+		});
+	}
+	catch (const std::exception& ex) {
+		controller_scope_load_inflight_ = false;
+		controller_scope_last_error_ = ex.what();
+		LOG_ERROR("Unable to start UKCP scope worker: {}", ex.what());
+		SendToConsole(vfpc::urgent, "Unable to start UKCP scope lookup. Use '.vfpc scope reload' to retry.");
+		RefreshDepartureAirports_();
+	}
 }
 
-const char* CVFPCPlugin::OwnIdentityKindToString_(OwnIdentityKind kind) const
+// Safe copy for validation/detail output; the message explains selection rather
+// than claiming that UKCP represents live staffing, delegation or ownership.
+std::string CVFPCPlugin::ControllerScopeDescription_() const
 {
-	switch (kind) {
-	case OwnIdentityKind::None: return "None";
-	case OwnIdentityKind::Controller: return "Controller";
-	case OwnIdentityKind::Observer: return "Observer";
-	case OwnIdentityKind::Unknown: return "Unknown";
-	default: return "Unknown";
-	}
+	std::lock_guard<std::mutex> g(active_mtx_);
+	return controller_scope_description_;
 }
 
-const char* CVFPCPlugin::ActiveAirportSourceToString_(ActiveAirportSource source) const
+// ADR-003: separate configured position coverage, user airport selection, and
+// each aircraft's assigned runway. OBS deliberately bypasses the UKCP filter.
+// Preserve the existing airport snapshot/generation pipeline after resolution.
+// These coordinator methods run in host callbacks, as does the existing timer.
+void CVFPCPlugin::RefreshDepartureAirports_()
 {
-	switch (source) {
-	case ActiveAirportSource::None: return "None";
-	case ActiveAirportSource::ControllerIdentity: return "ControllerIdentity";
-	case ActiveAirportSource::Inferred: return "Inferred";
-	default: return "Unknown";
+	UpdateControllerIdentity_();
+	std::vector<std::string> runway_airports;
+	bool runway_activity_read = true;
+	try {
+		SelectActiveSectorfile();
+		for (auto airport = SectorFileElementSelectFirst(EuroScopePlugIn::SECTOR_ELEMENT_AIRPORT);
+			airport.IsValid();
+			airport = SectorFileElementSelectNext(airport, EuroScopePlugIn::SECTOR_ELEMENT_AIRPORT)) {
+			const char* name = airport.GetName();
+			const bool departure = airport.IsElementActive(true);
+			const bool arrival = airport.IsElementActive(false);
+			if (departure && name && *name) runway_airports.push_back(norm_icao(name));
+			if (departure || arrival) LOG_INFO("Runway Activity airport='{}' departure_active={} arrival_active={}",
+				name ? name : "", departure, arrival);
+		}
 	}
-}
-
-void CVFPCPlugin::SetActiveAirport_(const std::string& airport, ActiveAirportSource source)
-{
-	if (airport.empty()) {
-		return;
+	catch (const std::exception& ex) {
+		runway_activity_read = false;
+		LOG_ERROR("Runway Activity airport scan failed: {}", ex.what());
 	}
+	catch (...) {
+		runway_activity_read = false;
+		LOG_ERROR("Runway Activity airport scan failed: unknown exception");
+	}
+	// Never use a partial scan. Fixed local scope can still be resolved from UKCP.
+	if (!runway_activity_read) runway_airports.clear();
+	std::sort(runway_airports.begin(), runway_airports.end());
+	runway_airports.erase(std::unique(runway_airports.begin(), runway_airports.end()), runway_airports.end());
 
-	bool changed = false;
-	std::string old_airport;
-	ActiveAirportSource old_source = ActiveAirportSource::None;
-
+	std::vector<std::string> selected, excluded;
+	const auto& callsign = controller_identity_.callsign;
+	const auto separator = callsign.rfind('_');
+	const std::string suffix = separator == std::string::npos ? "" : callsign.substr(separator + 1);
+	std::string description;
+	if (!controller_identity_.valid) {
+		description = "Controller identity is not ready; validation paused.";
+	}
+	else if (suffix == "OBS") {
+		// Facility OBS values and simulator server permissions are not documented
+		// by this SDK. Neither rating nor IsController()==false identifies an OBS.
+		selected = runway_airports;
+		description = runway_activity_read
+			? fmt::format("{}: observer review scope from departure Runway Activity.", callsign)
+			: fmt::format("{}: unable to read Runway Activity; observer validation paused.", callsign);
+	}
+	else if (!controller_scopes_available_) {
+		description = controller_scope_load_inflight_ || controller_scope_reload_requested_
+			? fmt::format("{}: UKCP controller scope data is loading; operational validation paused.", callsign)
+			: fmt::format("{}: UKCP controller scope data unavailable; validation paused. Use '.vfpc scope reload' to retry.", callsign);
+	}
+	else {
+		const auto position = controller_scopes_.find(callsign);
+		if (position == controller_scopes_.end()) {
+			description = fmt::format("{}: no exact UKCP position mapping; validation paused.", callsign);
+		}
+		else if (position->second.empty()) {
+			description = fmt::format("{}: UKCP top_down is empty; validation paused.", callsign);
+		}
+		else if (suffix == "DEL" || suffix == "GND" || suffix == "TWR") {
+			const std::string airport = callsign.substr(0, callsign.find('_'));
+			// Require agreement between an airport-shaped prefix and the exact UKCP
+			// record. Never invent coverage or choose the first of several airports.
+			if (airport.size() == 4 && position->second.size() == 1 && position->second.front() == airport) {
+				selected = position->second;
+				description = fmt::format("{}: airport-specific scope {} from UKCP, independent of Runway Activity.", callsign, airport);
+				if (!runway_activity_read)
+					description += " Warning: unable to read Runway Activity; scope is retained.";
+				else if (!std::binary_search(runway_airports.begin(), runway_airports.end(), airport))
+					description += " Warning: airport is not departure-active in Runway Activity; scope is retained.";
+			}
+			else description = fmt::format("{}: UKCP mapping does not identify one matching local airport; validation paused.", callsign);
+		}
+		else if (suffix == "APP" || suffix == "CTR") {
+			for (const auto& airport : runway_airports) {
+				if (std::binary_search(position->second.begin(), position->second.end(), airport)) selected.push_back(airport);
+				else excluded.push_back(airport);
+			}
+			description = fmt::format("{}: departure Runway Activity filtered by UKCP top_down.", callsign);
+			if (!runway_activity_read) description += " Unable to read Runway Activity; validation paused.";
+			if (!excluded.empty()) description += fmt::format(" Excluded outside configured coverage: {}. Check Runway Activity.", fmt::join(excluded, ", "));
+		}
+		else description = fmt::format("{}: unsupported position suffix; validation paused.", callsign);
+	}
+	// Fixed scope comes from a sorted UKCP list; filtered/OBS scope from a sorted
+	// sector scan. Keep sorting explicit because readers use binary_search.
+	std::sort(selected.begin(), selected.end());
+	selected.erase(std::unique(selected.begin(), selected.end()), selected.end());
+	description += selected.empty() ? " No airports selected for validation."
+		: fmt::format(" Selected airports: {}.", fmt::join(selected, ", "));
+	bool selection_changed, description_changed;
 	{
 		std::lock_guard<std::mutex> g(active_mtx_);
-		if (active_airport_ == airport &&
-			active_airport_locked_ &&
-			active_airport_source_ == source) {
-			return;
+		selection_changed = !departure_selection_initialised_ || selected != departure_airports_;
+		description_changed = description != controller_scope_description_;
+		controller_scope_description_ = description;
+		departure_selection_initialised_ = true;
+		if (selection_changed) {
+			departure_airports_ = selected;
+			for (auto it = airport_snapshots_.begin(); it != airport_snapshots_.end();) {
+				if (!std::binary_search(selected.begin(), selected.end(), it->first)) it = airport_snapshots_.erase(it);
+				else ++it;
+			}
 		}
-		old_airport = active_airport_;
-		old_source = active_airport_source_;
-		active_airport_ = airport;
-		active_airport_locked_ = true;
-		active_airport_source_ = source;
-		airport_data_requested_ = false;
-		changed = true;
 	}
-
-	if (changed) {
-		LOG_INFO("Active airport changed from '{}' ({}) to '{}' ({})",
-			old_airport,
-			ActiveAirportSourceToString_(old_source),
-			airport,
-			ActiveAirportSourceToString_(source));
+	// Diagnostics are emitted only when the effective scope or explanation changes.
+	if (description_changed) {
+		LOG_INFO("Controller scope: {}", description);
+		SendToConsole(vfpc::urgent, "{}", description);
 	}
-}
-
-void CVFPCPlugin::ClearActiveAirport_()
-{
-	if (active_airport_.empty() && active_airport_source_ ==
-		ActiveAirportSource::None) {
+	if (!selection_changed) {
+		// Keep detailed OFF explanations current even if both scopes are empty.
+		if (description_changed) RevalidateTrackedFlightPlans_("controller scope explanation changed");
 		return;
 	}
-
-	LOG_INFO("Clearing active airport '{}' ({})",
-		active_airport_,
-		ActiveAirportSourceToString_(active_airport_source_));
-
-	active_airport_.clear();
-	active_airport_locked_ = false;
-	active_airport_source_ = ActiveAirportSource::None;
-	airport_data_requested_ = false;
-	origin_counts_.clear();
-
-}
-
-void CVFPCPlugin::ResolveActiveAirport_(const OwnIdentityInfo& self)
-{
-	LOG_TRACE("ResolveActiveAirport_: kind={} callsign='{}' rating={} airport = '{}'",
-		OwnIdentityKindToString_(self.kind),
-		self.callsign,
-		self.rating,
-		self.airport_icao);
-
-	if (self.kind == OwnIdentityKind::Controller &&
-		!self.airport_icao.empty()) {
-
-		SetActiveAirport_(self.airport_icao, ActiveAirportSource::ControllerIdentity);
-		return;
-	}
-
+	airport_generation_.fetch_add(1, std::memory_order_acq_rel);
+	if (airport_thread_.joinable()) airport_thread_.request_stop();
+	airport_reload_requested_.store(!selected.empty(), std::memory_order_release);
+	RevalidateTrackedFlightPlans_("controller scope selection changed");
 }
 
 // 8d. Flight-plan tracking helpers
@@ -4379,19 +4451,10 @@ string CVFPCPlugin::BuildFlightPlanFingerprint_(const FlightPlanRow& row) const
 
 void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 {
-	// ----------------------------------------------------------
-	// Active airport inference (runs until locked)
-	// ----------------------------------------------------------
-	if (!active_airport_locked_) {
-		TryLockActiveAirportFromFlightPlan_(row);
-	}
-
 	const auto now = std::chrono::steady_clock::now();
 	const std::string fingerprint = BuildFlightPlanFingerprint_(row);
-	const bool can_validate_now = (!row.is_ifr) || CanValidateFlightPlans_();
 
 	bool should_validate = false;
-	bool should_store_pending = false;
 
 	{
 		std::lock_guard<std::mutex> g(tracked_flightplans_mtx_);
@@ -4418,8 +4481,7 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 			);
 
 			tracked_flightplans_[row.callsign] = std::move(tracked);
-			if (can_validate_now) should_validate = true;
-			else should_store_pending = true;
+			should_validate = true;
 		}
 		else
 		{
@@ -4435,36 +4497,18 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 				}
 
 				it->second.last_row = row;
-				if (can_validate_now) should_validate = true;
-				else should_store_pending = true;
+				should_validate = true;
 			}
-			else if (!it->second.last_result.ready && can_validate_now) {
+			// A runway-pending result remains valid for this fingerprint.
+			// Runway assignment changes the fingerprint; snapshot publication
+			// separately revalidates tracked flights. Neither needs tag retries.
+			else if (!it->second.last_result.ready &&
+				!(it->second.last_result.status == ValidationStatus::Pending &&
+					row.departure_rwy.empty())) {
 				should_validate = true;
 			}
 		}
 	}
-	if (should_store_pending) {
-		// Keep an info-level audit trail because production logging may omit trace messages.
-		LOG_INFO("Validation pending: callsign='{}' reason='airport data not loaded'",
-			row.callsign);
-
-		ValidationResult pending = initialiseResults(row.callsign);
-		pending.fields[VF_SID].summary = "Loading";
-		pending.fields[VF_SID].full = "Airport data not loaded yet.";
-		pending.fields[VF_STATUS].summary = "Pending";
-		pending.fields[VF_STATUS].full = "Pending";
-		pending.itemString = "PDG";
-		pending.ready = false;
-		pending.passed = false;
-		pending.status = ValidationStatus::Pending;
-		std::lock_guard<std::mutex> g(tracked_flightplans_mtx_);
-		auto it = tracked_flightplans_.find(row.callsign);
-		if (it != tracked_flightplans_.end()) {
-			it->second.last_result = std::move(pending);
-		}
-		return;
-	}
-
 	if (!should_validate) {
 		return;
 	}
@@ -4602,29 +4646,6 @@ void CVFPCPlugin::ResetTrackedFlightPlans_()
 		std::lock_guard<std::mutex> g(checks_disabled_mtx_);
 		checks_disabled_callsigns_.clear();
 	}
-
-	{
-		std::lock_guard<std::mutex> g(skipped_airport_log_mtx_);
-		skipped_airport_logged_.clear();
-	}
-}
-
-bool CVFPCPlugin::CanValidateFlightPlans_() const
-{
-	if (!active_airport_locked_) {
-		return false;
-	}
-
-	auto snap = airport_data_.load(std::memory_order_acquire);
-	if (!snap) {
-		return false;
-	}
-
-	if (!snap->airport_json.IsObject()) {
-		return false;
-	}
-
-	return true;
 }
 
 // 8e. Validation result helpers
@@ -6538,7 +6559,6 @@ void CVFPCPlugin::OnGetTagItem(EuroScopePlugIn::CFlightPlan flightPlan,
 
 		ProcessTrackedFlightPlan_(row);
 
-		auto snap = airport_data_.load(std::memory_order_acquire);
 		const bool version_ok = validVersion.load(std::memory_order_acquire);
 
 		if (!version_ok) {
@@ -6546,6 +6566,12 @@ void CVFPCPlugin::OnGetTagItem(EuroScopePlugIn::CFlightPlan flightPlan,
 				row.callsign);
 			strcpy_s(sItemString, 16, "ERR");
 			if (pRGB) *pRGB = plugin_config_.TAG_RED;
+			return;
+		}
+
+		if (!IsDepartureAirportSelected_(origin)) {
+			strcpy_s(sItemString, 16, "OFF");
+			if (pRGB) *pRGB = plugin_config_.TAG_GREY;
 			return;
 		}
 
@@ -6567,32 +6593,6 @@ void CVFPCPlugin::OnGetTagItem(EuroScopePlugIn::CFlightPlan flightPlan,
 				}
 				return;
 			}
-		}
-
-		std::string locked_airport;
-		{
-			std::lock_guard<std::mutex> g(active_mtx_);
-			locked_airport = active_airport_;
-		}
-
-		if (!locked_airport.empty() && origin != locked_airport) {
-			const std::string skip_key =
-				row.callsign + "|" + origin + "|" + locked_airport;
-
-			bool should_log = false;
-			{
-				std::lock_guard<std::mutex> g(skipped_airport_log_mtx_);
-				should_log = skipped_airport_logged_.insert(skip_key).second;
-			}
-
-			if (should_log) {
-				LOG_TRACE("Skipping validation for callsign '{}' origin '{}' because active airport is locked to '{}'",
-					row.callsign, origin, locked_airport);
-			}
-
-			strcpy_s(sItemString, 16, "OFF");
-			if (pRGB) *pRGB = plugin_config_.TAG_GREY;
-			return;
 		}
 
 		ValidationResult result = MakePendingResult_(row.callsign, "PDG", "Validation pending.");
@@ -6643,6 +6643,26 @@ void CVFPCPlugin::ShowConfigStatus_()
 //Handles console commands
 bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 	try {
+		// Available in Release too: a transient UKCP failure must be recoverable
+		// without changing the airport-data source or reconnecting EuroScope.
+		const std::string command = normalize_callsign(sCommandLine ? sCommandLine : "");
+		if (command == ".VFPC SCOPE RELOAD") {
+			if (GetConnectionType() == EuroScopePlugIn::CONNECTION_TYPE_NO) {
+				SendToConsole(vfpc::urgent, "Connect to EuroScope before reloading controller scope.");
+				return true;
+			}
+			controller_scope_reload_requested_ = true;
+			SendToConsole(vfpc::urgent, "UKCP controller scope reload requested; existing valid scope data is retained until replacement succeeds.");
+			return true;
+		}
+		if (command == ".VFPC SCOPE") {
+			SendToConsole("{}", ControllerScopeDescription_());
+			SendToConsole("UKCP scope cache: {}; request {}.",
+				controller_scopes_available_ ? "available for this session" : "not available",
+				controller_scope_load_inflight_ || controller_scope_reload_requested_ ? "pending" : "idle");
+			if (!controller_scope_last_error_.empty()) SendToConsole("Last UKCP error: {}", controller_scope_last_error_);
+			return true;
+		}
 #ifdef _DEBUG
 		//Restart Automatic Data Loading - developer/debug builds only
 		if (startsWith((COMMAND_PREFIX + LOAD_COMMAND).c_str(), sCommandLine))
@@ -6650,11 +6670,6 @@ bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 			fileLoad = false;
 			autoLoad = true;
 			relCount = 0;
-
-			{
-				std::lock_guard<std::mutex> g(active_mtx_);
-				airport_data_requested_ = false;
-			}
 
 			SendToConsole(vfpc::urgent, "Auto-Load Activated. Requesting airport data from API.");
 			LOG_INFO("Auto-load activated; API reload requested.");
@@ -6736,6 +6751,7 @@ void CVFPCPlugin::checkFPDetail(ResultsView view)
 		}
 
 		FlightPlanRow row = BuildFlightPlanRow_(flightPlan);
+		ProcessTrackedFlightPlan_(row);
 		ValidationResult result = MakePendingResult_(row.callsign, "PDG", "No cached validation result yet.");
 		{
 			std::lock_guard<std::mutex> g(tracked_flightplans_mtx_);
@@ -6761,207 +6777,124 @@ void CVFPCPlugin::checkFPDetail(ResultsView view)
 //==============================================================
 void CVFPCPlugin::OnTimer(int Counter)
 {
-	if (!is_initialised) return;
-
-	// -----------------------------
-	// Version gating (non-blocking)
-	// -----------------------------
-	if (!version_checked.load(std::memory_order_acquire)) {
-		return;
-	}
-
-	if (!validVersion.load(std::memory_order_acquire)) {
-		return;
-	}
-
+	// Practical host callback context; exact SDK affinity/unload exclusion remain unconfirmed.
+	// Drain even when version checking failed or the session is disconnected.
+	DrainWorkerNotifications_();
+	if (!is_initialised || !version_checked.load(std::memory_order_acquire) ||
+		!validVersion.load(std::memory_order_acquire)) return;
 	try {
-		const bool connected = (GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_NO);
-		// -----------------------------
-		// Disconnect handling
-		// -----------------------------
+		const bool connected = GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_NO;
 		if (!connected) {
-			if (session_state_ != SessionState::Disconnected) {
-				session_state_ = SessionState::Disconnected;
-				LOG_INFO("User logged off from EuroScope...");
-			}
-
 			if (!disconnect_cleanup_done_) {
 				disconnect_cleanup_done_ = true;
-				if (airport_thread_.joinable()) {
-					LOG_INFO("Stopping airport worker thread (disconnect)...");
-					airport_thread_.request_stop();
-				}
-
-				airport_load_inflight_.store(false, std::memory_order_release);
+				// A cancelled lookup may complete after reconnect. Its generation must
+				// never repopulate the new session's cache or affect airport selection.
+				++controller_scope_generation_;
+				if (controller_scope_thread_.joinable()) controller_scope_thread_.request_stop();
+				controller_scope_reload_requested_ = false;
+				controller_scopes_.clear();
+				controller_scopes_available_ = false;
+				controller_scope_last_error_.clear();
+				controller_identity_ = {};
+				airport_generation_.fetch_add(1, std::memory_order_acq_rel);
+				if (airport_thread_.joinable()) airport_thread_.request_stop();
 				airport_reload_requested_.store(false, std::memory_order_release);
-				pending_ready_.store(false, std::memory_order_release);
-				airport_data_.store(nullptr, std::memory_order_release);
-
-				ResetActiveAirportState();
+				PublishAirportSnapshot_(nullptr, "disconnect");
+				{
+					std::lock_guard<std::mutex> g(active_mtx_);
+					departure_airports_.clear();
+					departure_selection_initialised_ = false;
+					controller_scope_description_ = "Disconnected: validation paused.";
+				}
 				ResetTrackedFlightPlans_();
-
-				last_own_callsign_.clear();
-				last_own_rating_ = -1;
-				last_own_identity_valid_ = false;
-				active_airport_source_ = ActiveAirportSource::None;
+				LOG_INFO("User logged off from EuroScope...");
 			}
-			last_update = Counter;
+			session_state_ = SessionState::Disconnected;
 			return;
 		}
-
-		// -----------------------------
-		// Connect transition
-		// -----------------------------
 		if (session_state_ == SessionState::Disconnected) {
 			session_state_ = SessionState::Connected_NoCallsign;
 			disconnect_cleanup_done_ = false;
 			LOG_INFO("User connected to EuroScope...");
+			controller_scope_reload_requested_ = true;
 		}
+		// Resolve identity and UKCP scope before accepting completed airport data.
+		// In particular, a callsign change must invalidate newly excluded airports.
+		const bool identity_changed = UpdateControllerIdentity_();
+		session_state_ = controller_identity_.valid
+			? SessionState::Connected_CallsignReady : SessionState::Connected_NoCallsign;
+		ServiceControllerScopeLookup_();
+		if (identity_changed || !departure_selection_initialised_) RefreshDepartureAirports_();
 
-		// -----------------------------
-		// 1) Apply completed worker result
-		// -----------------------------
 		if (pending_ready_.load(std::memory_order_acquire)) {
-			std::shared_ptr<AirportValidationData> snap;
+			AirportSnapshots completed;
+			std::vector<std::string> failures;
+			unsigned long long generation;
 			{
 				std::lock_guard lk(pending_mtx_);
-				if (pending_ready_.load(std::memory_order_acquire)) {
-					snap = std::move(pending_snapshot_);
-					pending_ready_.store(false, std::memory_order_release);
-				}
+				completed.swap(pending_snapshots_);
+				failures.swap(pending_failures_);
+				generation = pending_generation_;
+				pending_ready_.store(false, std::memory_order_release);
 			}
-			if (snap) {
-				airport_data_.store(std::const_pointer_cast<const AirportValidationData>(snap),
-					std::memory_order_release);
-
-				const auto* icao = FindMemberValue(snap->airport_json, "icao");
-
-				const char* source_text = fileLoad ? "file" : "server";
-
-				LOG_INFO("Airport snapshot published: airport='{}' source='{}'",
-					(icao && icao->IsString()) ? icao->GetString() : "(unknown)",
-					source_text);
-
-				// Snapshot now exists, so a fresh request is no longer outstanding
-				{
-					std::lock_guard<std::mutex> g(active_mtx_);
-					airport_data_requested_ = true;
-				}
-
-				airport_load_inflight_.store(false, std::memory_order_release);
-
-				RevalidateTrackedFlightPlans_(
-					fileLoad ? "file airport data loaded" : "server airport data loaded"
-				);
+			airport_load_inflight_.store(false, std::memory_order_release);
+			if (generation == airport_generation_.load(std::memory_order_acquire)) {
+				for (const auto& [airport, snap] : completed) PublishAirportSnapshot_(snap, "worker result");
+				for (const auto& airport : failures) SendToConsole(vfpc::urgent,
+					"vFPC could not load data for {}. Its flights remain pending; other selected airports are unaffected.", airport);
+				RevalidateTrackedFlightPlans_("selected airport data loaded");
 			}
-			else {
-				LOG_WARN("Airport snapshot publish skipped: pending_ready_ was set but pending snapshot was null");
-				airport_load_inflight_.store(false, std::memory_order_release);
-			}
+			else LOG_DEBUG("Discarding airport results for superseded selection generation {}", generation);
 		}
-
-		// -----------------------------
-		// 2) Resolve active airport from own controller identity
-		// -----------------------------
-		{
-			OwnIdentityInfo self{};
-			const bool own_identity_changed = UpdateOwnIdentityIfChanged_(self);
-			if (own_identity_changed) {
-				ResolveActiveAirport_(self);
-			}
-		}
-
-		// -----------------------------
-		// 3) Request airport data once after airport is known
-		// -----------------------------
-		EnsureAirportDataRequested();
-
-		// -----------------------------
-		// 4) Cleanup stale flight plans (5-10secs)
-		// -----------------------------
 		PruneTrackedFlightPlans_();
-
-		// -----------------------------
-		// 5) Start worker if reload requested and not already inflight
-		// -----------------------------
-		if (airport_reload_requested_.exchange(false, std::memory_order_acq_rel)) {
-			// Prevent overlap
-			if (airport_load_inflight_.exchange(true, std::memory_order_acq_rel)) {
-				LOG_WARN("Airport reload request ignored because a load is already in flight"); 
-				last_update = Counter;
-				return;
-			}
-
-			const SidSource source = (fileLoad ? SidSource::File : SidSource::DataServer);
-			std::string airport;
-
+		if (!airport_load_inflight_.load(std::memory_order_acquire) &&
+			airport_reload_requested_.exchange(false, std::memory_order_acq_rel)) {
+			std::vector<std::string> airports;
 			{
 				std::lock_guard<std::mutex> g(active_mtx_);
-				if (active_airport_locked_) {
-					airport = active_airport_;
-				}
+				for (const auto& airport : departure_airports_)
+					if (!airport_snapshots_.contains(airport)) airports.push_back(airport);
 			}
-
-			// In both API mode and file mode, do not start worker until airport is known
-			if (airport.empty()) {
-				LOG_TRACE("Airport reload deferred: active airport not yet determined.");
-				airport_load_inflight_.store(false, std::memory_order_release);
-				last_update = Counter;
-				return;
-			}
-
-			// Stop previous worker if needed
-			if (airport_thread_.joinable()) {
-				LOG_TRACE("Stopping previous airport worker thread...");
-				airport_thread_.request_stop();
-			}
-
-			LOG_TRACE("Starting airport worker thread. source={}, airport = '{}'",
-				(source == SidSource::File ? "file" : "server"), airport);
-
-			airport_thread_ = std::jthread([this, source, airport](std::stop_token st)
-				{
+			if (airports.empty()) return;
+			const auto generation = airport_generation_.load(std::memory_order_acquire);
+			const SidSource source = fileLoad ? SidSource::File : SidSource::DataServer;
+			airport_load_inflight_.store(true, std::memory_order_release);
+			airport_thread_ = std::jthread([this, airports, generation, source](std::stop_token st) {
+				AirportSnapshots completed;
+				std::vector<std::string> failures;
+				for (const auto& airport : airports) {
+					if (st.stop_requested()) break;
 					try {
 						auto snap = std::make_shared<AirportValidationData>();
-						const bool ok = FetchSidsInto_((source == SidSource::File) ? SidSource::File : SidSource::DataServer,
-							airport,
-							st,
-							snap->airport_json);
-
-						if (!ok || st.stop_requested()) {
-							airport_load_inflight_.store(false, std::memory_order_release);
-							return;
-						}
-
-						LOG_TRACE("Airport worker: snapshot ready. cfgIsArray = {} cfgSize = {}",
-							snap->airport_json.IsArray(),
-							snap->airport_json.IsArray() ? snap->airport_json.Size() : 0);
-						{
-							std::lock_guard lk(pending_mtx_);
-							pending_snapshot_ = std::move(snap);
-							pending_ready_.store(true, std::memory_order_release);
-						}
+						static std::atomic<unsigned long long> next_snapshot_id{ 1 };
+						snap->snapshot_id = next_snapshot_id.fetch_add(1, std::memory_order_relaxed);
+						snap->requested_airport = airport;
+						snap->load_source = source == SidSource::File ? "file" : "server";
+						const bool ok = FetchSidsInto_(source, airport, st, snap->airport_json);
+						if (st.stop_requested()) break;
+						if (ok && snap->airport_json.IsObject()) completed[airport] = std::move(snap);
+						else failures.push_back(airport);
+						LOG_INFO("Airport data load: airport='{}' ok={} generation={}", airport, ok, generation);
 					}
 					catch (const std::exception& ex) {
-						LOG_ERROR("Airport worker exception: {}", ex.what());
-						airport_load_inflight_.store(false, std::memory_order_release);
+						LOG_ERROR("Airport data load failed: airport='{}' error='{}'", airport, ex.what());
+						failures.push_back(airport);
 					}
 					catch (...) {
-						LOG_ERROR("Airport worker unknown exception.");
-						airport_load_inflight_.store(false, std::memory_order_release);
+						LOG_ERROR("Airport data load failed: airport='{}' unknown error", airport);
+						failures.push_back(airport);
 					}
-				});
+				}
+				std::lock_guard lk(pending_mtx_);
+				pending_snapshots_ = std::move(completed);
+				pending_failures_ = std::move(failures);
+				pending_generation_ = generation;
+				pending_ready_.store(true, std::memory_order_release);
+			});
 		}
-
 		last_update = Counter;
 	}
-	catch (const std::exception& ex) {
-		LOG_ERROR("Exception in OnTimer: {}", ex.what());
-	}
-	catch (const std::string& ex) {
-		LOG_ERROR("Exception in OnTimer: {}", ex);
-	}
-	catch (...) {
-		LOG_ERROR("Unknown exception in OnTimer.");
-	}
+	catch (const std::exception& ex) { LOG_ERROR("Exception in OnTimer: {}", ex.what()); }
+	catch (...) { LOG_ERROR("Unknown exception in OnTimer."); }
+
 }

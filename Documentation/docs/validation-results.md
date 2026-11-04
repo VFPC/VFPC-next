@@ -51,7 +51,7 @@ below.
 | <span class="vfpc-tag vfpc-tag--yellow">WRN</span> | Advisory information is available |
 | <span class="vfpc-tag vfpc-tag--yellow">PDG</span> | Validation is pending |
 | <span class="vfpc-tag vfpc-tag--grey">VFR</span> | VFR flight plan — not validated |
-| <span class="vfpc-tag vfpc-tag--grey">OFF</span> | Validation has been disabled for the flight plan |
+| <span class="vfpc-tag vfpc-tag--grey">OFF</span> | Outside selected controller scope, checks disabled, or EuroScope disconnected |
 | <span class="vfpc-tag vfpc-tag--cyan">OVR</span> | Controller override applied |
 | <span class="vfpc-tag vfpc-tag--red">SID</span> | SID validation failed |
 | <span class="vfpc-tag vfpc-tag--red">DST</span> | Destination validation failed |
@@ -102,10 +102,16 @@ not validated.
 
 ---
 
-<span class="vfpc-tag vfpc-tag--grey">OFF</span> indicates that validation
-checks have been disabled for the flight plan using **Toggle Checks**.
+<span class="vfpc-tag vfpc-tag--grey">OFF</span> indicates that the flight is
+outside the selected controller scope, checks have been disabled using
+**Toggle Checks**, or EuroScope is disconnected.
 
-Select **Toggle Checks** again to re-enable validation.
+For a scope exclusion, use **Show Checks (SUMMARY)** or **Show Checks (FULL)**
+to read the origin/scope explanation, and use `.vfpc scope` to inspect the selected
+airports. Selecting **Toggle Checks** does not bring an excluded airport into scope.
+
+If checks were explicitly disabled, select **Toggle Checks** again to re-enable
+them. An in-scope VFR flight is reported as VFR rather than OFF.
 
 ---
 
