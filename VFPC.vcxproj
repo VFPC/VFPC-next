@@ -22,6 +22,7 @@
     <ClInclude Include="src\TimeWindow.h" />
     <ClInclude Include="src\Utils.h" />
     <ClInclude Include="src\VersionInfo.h" />
+    <ClInclude Include="src\WorkerNotificationQueue.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\analyzeFP.cpp" />
@@ -165,8 +166,7 @@
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <!-- Run on each requested build; unchanged content preserves header timestamp. -->
-  <Target Name="VFPCGenerateGitBuildInfo" BeforeTargets="PrepareForBuild"
-          Condition="'$(DesignTimeBuild)' != 'true'">
+  <Target Name="VFPCGenerateGitBuildInfo" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
     <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)scripts\GenerateGitBuildInfo.ps1&quot; -RepositoryDir &quot;$(ProjectDir).&quot; -OutputFile &quot;$(VFPCGitInfoDir)GitBuildInfo.h&quot;" />
   </Target>
   <ImportGroup Label="ExtensionTargets">

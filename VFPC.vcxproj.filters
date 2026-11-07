@@ -48,6 +48,9 @@
     <ClInclude Include="src\VersionInfo.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\WorkerNotificationQueue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\analyzeFP.cpp">
@@ -73,5 +76,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
+    <None Include="scripts\GenerateGitBuildInfo.ps1" />
   </ItemGroup>
 </Project>
