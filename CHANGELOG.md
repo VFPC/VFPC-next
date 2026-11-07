@@ -2,7 +2,7 @@
 
 This document records significant changes in released versions and planned updates to vFPC.
 
-## 4.1.0 - Unreleased
+## 4.1.0 - 07-11-2026
 
 ### Added
 
@@ -58,9 +58,7 @@ This document records significant changes in released versions and planned updat
 
 - vFPC remains a 32-bit EuroScope plugin. Sector support reviews departure flight
   plans; it does not validate aircraft progress through an en-route sector.
-- Release preparation uses public version `4.1.0` and Windows DLL version
-  `4.1.0.0`. The User Guide and release assets are prepared for review; this
-  unreleased entry will receive the publication date when the release is published.
+- Public version: `4.1.0`. Windows DLL version: `4.1.0.0`.
 
 ## 4.0.0.0 - 11-10-2026
 
