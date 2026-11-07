@@ -17,7 +17,7 @@ information against the data available for the departure airport.
 The diagram below provides a simplified overview of the validation process.
 Individual checks may depend on the results of earlier checks.
 
-![Validation Flowchart](images/validation-flow.png){.vfpc-screenshot .vfpc-screenshot--50percent}
+![Validation Flowchart](images/validation-flow.svg){.vfpc-screenshot .vfpc-screenshot--50percent}
 
 *Figure 6: Simplified vFPC validation process.*{.vfpc-caption}
 
@@ -77,7 +77,14 @@ No further vFPC action is required.
 <span class="vfpc-tag vfpc-tag--yellow">WRN</span> indicates that the flight
 plan has passed validation, but advisory information is available.
 
-Review the Summary result for details of the warning.
+Review the Summary result for details of the warning. One warning condition
+is a permitted exit point that appears in EuroScope's extracted waypoint list
+but is absent from the filed route. The exit-point check passes in this case.
+
+If another check fails, its failure code takes priority over WRN. The warning
+remains available under **Warnings** in **Show Checks (FULL)**. See
+[Exit Point Diagnostics and Warnings](using-vfpc.md#exit-point-diagnostics-and-warnings)
+for examples.
 
 ---
 
@@ -144,7 +151,15 @@ Review the Summary result for details of the destination validation failure.
 <span class="vfpc-tag vfpc-tag--red">XIT</span> indicates that the exit point
 has failed validation against the applicable route requirements.
 
-Review the Summary result for details of the exit point validation failure.
+SUMMARY distinguishes a known exit point that is not permitted for the filed
+departure from a case where no known exit point was identified. FULL may list
+constraint-supported alternative departures; their order does not imply
+preference. No alternative is listed when the data does not support one.
+
+A permitted exit that is extracted but absent from the filed route is a
+warning, not an XIT failure. See
+[Exit Point Diagnostics and Warnings](using-vfpc.md#exit-point-diagnostics-and-warnings)
+for the messages and how to review them.
 
 ---
 
@@ -152,6 +167,16 @@ Review the Summary result for details of the exit point validation failure.
 has failed validation against the applicable route requirements.
 
 Review the Summary result for details of the route validation failure.
+
+Suggested routes and mismatch explanations are limited to constraints that
+survived the earlier checks and meet the requested level and odd/even rules.
+Suggestions also respect applicable SID restrictions, including aircraft type,
+suffix, EOBT and prohibitions. Duplicate alternatives are omitted; vFPC does
+not widen the suggestion set to routes already rejected by those checks.
+
+These suggestions help explain an RTE result. They do not change the filed
+flight plan or replace the controller's assessment of the complete route and
+current procedures.
 
 ---
 

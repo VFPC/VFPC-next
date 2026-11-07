@@ -19,14 +19,15 @@ If necessary, repeat the configuration steps in
 
 ## A Flight Plan Is Not Being Validated
 
-vFPC validates IFR departure flight plans for the active departure airport.
+vFPC validates IFR departure flight plans for airports within the current controller scope.
 
 A flight plan may not be validated if:
 
 - The flight plan is VFR.
 - A departure runway has not yet been assigned.
 - Validation checks have been disabled using **Toggle Checks**.
-- The flight plan does not belong to the airport currently being handled by vFPC.
+- The departure airport is outside the current controller scope.
+- For APP/CTR, the airport is not departure-active in Runway Activity or is outside the position's configured UKCP coverage.
 - The required airport validation data is not available.
 
 The code displayed in the **FPL** column may provide more information. See the
@@ -53,6 +54,25 @@ If a result does not appear to agree with the filed flight plan:
 3. Compare the result with the applicable UK procedures and the filed flight plan.
 
 If the result still appears incorrect, see [Reporting an Issue](reporting-issues.md).
+
+## An Exit Warning Is Not Shown in the FPL Code
+
+An existing validation failure takes priority over **WRN**. Select
+**Show Checks (FULL)** and review **Warnings**. A permitted exit can be absent
+from the filed route while the FPL code reports a separate failure, such as
+**OER**.
+
+## An Exit Is Missing from the Filed Route
+
+EuroScope can extract a permitted intermediate waypoint that is not explicitly
+filed. In that case vFPC passes the exit-point check and records a warning.
+Review the filed route and the extracted waypoint list; do not interpret the
+warning alone as an XIT failure.
+
+If no known exit is identified in the extracted list, vFPC instead reports
+**XIT**. Deleting a waypoint from the filed route does not guarantee that it
+will remain in EuroScope's extracted list. See
+[Exit Point Diagnostics and Warnings](using-vfpc.md#exit-point-diagnostics-and-warnings).
 
 ## Known Issues
 

@@ -3054,6 +3054,8 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 	std::vector<bool> validity;
 	std::vector<bool> new_validity;
 	std::vector<std::string> route_advisories;
+	std::vector<ExitPointDiagnostic> exit_diagnostics;
+	bool exit_check_passed = false;
 	std::vector<size_t> direction_input_successes;
 	std::vector<size_t> restriction_input_successes;
 	std::vector<size_t> minmax_input_successes;
@@ -3154,6 +3156,11 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 
 				case 1:
 					new_validity = syntax_ok ? checkExitPoint(*constraints, row.extracted_points, validity) : validity;
+					if (syntax_ok) {
+						exit_check_passed = std::any_of(new_validity.begin(), new_validity.end(), [](bool v) { return v; });
+						// Capture before later rounds discard candidates (ADR-004).
+						exit_diagnostics = BuildExitPointDiagnostics_(airport, row, *constraints, new_validity);
+					}
 					break;
 
 				case 2:
@@ -3649,9 +3656,15 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 		case 1:
 		{
 			if (round == 1 && syntax_ok) {
-				const std::string text =
-					"Failed " + ExitPointOutput(airport, row.extracted_points);
-				SetField_(validationResult, VF_EXIT_POINT, "Failed Exit Point.", text);
+				std::string summary, full;
+				for (const auto& diagnostic : exit_diagnostics) {
+					if (!summary.empty()) { summary += "; "; full += " "; }
+					summary += diagnostic.summary;
+					full += diagnostic.full;
+				}
+				SetField_(validationResult, VF_EXIT_POINT, summary, full);
+				validationResult.fields[VF_EXIT_POINT].failure = true;
+				validationResult.fields[VF_EXIT_POINT].prefer_summary = true;
 			}
 
 			SetField_(validationResult, VF_DESTINATION, "Passed",
@@ -3755,6 +3768,18 @@ CVFPCPlugin::ValidationResult CVFPCPlugin::ValidateFlightPlan_(const FlightPlanR
 			VF_WARNINGS,
 			"Warnings Present.",
 			warning_text);
+	}
+
+	// Append after other warnings so a later route/level failure cannot hide this advisory.
+	if (exit_check_passed) {
+		for (const auto& diagnostic : exit_diagnostics) {
+			auto& warning = validationResult.fields[VF_WARNINGS];
+			const bool existing = FieldNeedsAttention_(validationResult, VF_WARNINGS);
+			const std::string summary = existing ? warning.summary + "; " + diagnostic.summary : diagnostic.summary;
+			const std::string full = existing ? warning.full + " " + diagnostic.full : diagnostic.full;
+			SetField_(validationResult, VF_WARNINGS, summary, full);
+			warning.prefer_summary = true;
+		}
 	}
 
 	FinalizeValidationResult_(validationResult);
@@ -4696,6 +4721,8 @@ void CVFPCPlugin::SetField_(ValidationResult& result,
 {
 	result.fields[field].summary = normal;
 	result.fields[field].full = debug;
+	result.fields[field].failure = false;
+	result.fields[field].prefer_summary = false;
 }
 
 void CVFPCPlugin::SetFieldIfUnset_(ValidationResult& result,
@@ -4720,6 +4747,7 @@ void CVFPCPlugin::SetBlockedFields_(ValidationResult& result,
 
 bool CVFPCPlugin::FieldIndicatesFailure_(const ValidationResult::Field& field) const
 {
+	if (field.failure) return true;
 	if (field.summary == "ERR") return true;
 	if (field.summary.rfind("Failed", 0) == 0) return true;
 	if (field.summary == "Invalid Syntax") return true;
@@ -4792,6 +4820,10 @@ ValidationField field) const
 
 	if (!FieldNeedsAttention_(result, field)) {
 		return {};
+	}
+
+	if (f.prefer_summary && IsUsefulSummaryText_(f.summary)) {
+		return f.summary;
 	}
 
 	if (IsUsefulSummaryText_(f.full)) {
@@ -6172,6 +6204,111 @@ std::string CVFPCPlugin::RouteOutput(const rapidjson::Value& constraints,
 		}
 	}
 	return "Valid Initial Routes: " + outstring + ".";
+}
+
+
+// ADR-004 reporting only: use the actual exit-check flags, and re-use both
+// existing filters when assessing advice. No airport snapshot is modified.
+std::vector<CVFPCPlugin::ExitPointDiagnostic> CVFPCPlugin::BuildExitPointDiagnostics_(
+	const rapidjson::Value& airport, const FlightPlanRow& row,
+	const rapidjson::Value& constraints, const std::vector<bool>& exit_validity) const
+{
+	std::vector<ExitPointDiagnostic> diagnostics;
+	const auto* sids = FindArrayMember(airport, "sids");
+	if (!sids) return diagnostics;
+	const bool passed = std::any_of(exit_validity.begin(), exit_validity.end(), [](bool v) { return v; });
+	const std::string departure = row.sid.empty() ? "non-SID" : StripRouteTokenSuffixForValidation_(row.first_waypoint);
+
+	// Only points named by airport exit constraints are known exits. Do not
+	// guess that the last extracted waypoint (often the destination) is an exit.
+	std::vector<std::string> known;
+	for (const auto& sid : sids->GetArray()) {
+		const auto* conditions = FindArrayMember(sid, "constraints");
+		if (!conditions) continue;
+		for (const auto& condition : conditions->GetArray()) {
+			for (const char* key : { "points", "nopoints" }) {
+				if (const auto* points = FindArrayMember(condition, key)) {
+					for (const auto& point : points->GetArray()) {
+						if (point.IsString()) known.emplace_back(point.GetString());
+					}
+				}
+			}
+		}
+	}
+
+	// A negative-only rule can permit an already known exit, but cannot identify
+	// an arbitrary extracted waypoint as an exit in the absence of positive data.
+	auto supports_point = [&](const rapidjson::Value& condition, const std::string& point) {
+		const auto* positive = FindArrayMember(condition, "points");
+		const auto* negative = FindArrayMember(condition, "nopoints");
+		const bool has_exit_rule = (positive && !positive->Empty()) || (negative && !negative->Empty());
+		return has_exit_rule && (!positive || positive->Empty() || arrayContainsString(*positive, point)) &&
+			(!negative || !arrayContainsString(*negative, point));
+	};
+	std::vector<std::string> seen;
+	for (const auto& point : row.extracted_points) {
+		if (std::find(known.begin(), known.end(), point) == known.end() ||
+			std::find(seen.begin(), seen.end(), point) != seen.end()) continue;
+		seen.push_back(point);
+		if (passed) {
+			bool permitted = false;
+			for (size_t i = 0; i < exit_validity.size() && i < constraints.Size(); ++i) {
+				if (exit_validity[i] && supports_point(constraints[static_cast<rapidjson::SizeType>(i)], point)) {
+					permitted = true;
+					break;
+				}
+			}
+			if (!permitted) continue;
+			const bool explicitly_filed = std::any_of(row.route_points.begin(), row.route_points.end(), [&](const std::string& token) {
+				return StripRouteTokenSuffixForValidation_(to_upper(token)) == point;
+			});
+			if (explicitly_filed) continue;
+			diagnostics.push_back({ point, point + " absent from filed route",
+				point + " is a permitted exit point for the filed departure and appears in EuroScope's extracted waypoint list, but is not explicitly included in the filed route." });
+		}
+		else {
+			std::vector<std::string> alternatives;
+			for (const auto& sid : sids->GetArray()) {
+				const auto* name = FindMemberValue(sid, "point");
+				const auto* conditions = FindArrayMember(sid, "constraints");
+				if (!name || !name->IsString() || !conditions || conditions->Empty() ||
+					std::string(name->GetString()) == departure) continue;
+				std::vector<bool> candidates(conditions->Size(), true);
+				candidates = checkDestination(*conditions, row.destination, candidates);
+				candidates = checkExitPoint(*conditions, row.extracted_points, candidates);
+				for (rapidjson::SizeType i = 0; i < conditions->Size(); ++i) {
+					if (candidates[i] && supports_point((*conditions)[i], point)) {
+						const std::string alternative = std::string(name->GetString()).empty() ? "non-SID" : name->GetString();
+						if (std::find(alternatives.begin(), alternatives.end(), alternative) == alternatives.end()) {
+							alternatives.push_back(alternative);
+						}
+						break;
+					}
+				}
+			}
+			// Retain configured departure order while removing duplicates above.
+			std::string full = point + " is not a permitted exit point for the filed " + departure + " departure.";
+			if (!alternatives.empty()) {
+				full += " " + point + " is permitted via ";
+				for (size_t i = 0; i < alternatives.size(); ++i) {
+					if (i) full += i + 1 == alternatives.size() ? " or " : ", ";
+					full += alternatives[i];
+				}
+				full += alternatives.size() == 1 ? " departure." : " departures.";
+			}
+			diagnostics.push_back({ point, point + " not permitted via " + departure, full });
+		}
+	}
+	if (!passed && diagnostics.empty()) {
+		diagnostics.push_back({ "", "No known exit point identified",
+			"No known exit point was identified in EuroScope's extracted waypoint list for the filed " + departure + " departure. Exit-point validation failed." });
+	}
+	for (const auto& diagnostic : diagnostics) {
+		LOG_DEBUG("Exit point diagnostic: callsign='{}' departure='{}' exit='{}' outcome='{}' reason='{}' filed_route='{}' extracted_points='{}'",
+			row.callsign, departure, diagnostic.point, passed ? "warning" : "failure", diagnostic.summary,
+			fmt::format("{}", fmt::join(row.route_points, " ")), fmt::format("{}", fmt::join(row.extracted_points, " ")));
+	}
+	return diagnostics;
 }
 
 //Outputs valid FIR exit points (from Constraints array) as string

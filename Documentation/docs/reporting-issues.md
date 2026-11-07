@@ -40,6 +40,7 @@ information as applicable:
 - The **FULL** result, where relevant.
 - What result you expected.
 - The relevant vFPC log file.
+- The startup log entry showing the version and build identification.
 
 ## Using the vFPC Log File
 
@@ -59,6 +60,18 @@ or other problem with vFPC.
 
 When reporting a problem, you may be asked to attach the log file covering the
 period when the problem occurred.
+
+### Build and Validation Information in Logs
+
+The startup entry identifies the plugin version, numeric DLL revision, build
+configuration and source/build identity. Include that entry when reporting a
+problem so support can distinguish the build being used.
+
+Logs also record validation results when airport data becomes available, not
+only when the flight is first seen. Airport-data load and lifecycle information
+helps support investigate loading or shutdown problems. You do not need to
+interpret the memory or source-identity fields yourself; provide the relevant
+log when requested.
 
 ### Detailed Logging
 

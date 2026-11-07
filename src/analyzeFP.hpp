@@ -165,6 +165,8 @@ public:
 		{
 			std::string full = "-";
 			std::string summary = "-";
+			bool failure = false; // Explicit failure when SUMMARY is diagnostic prose.
+			bool prefer_summary = false; // Preserve concise ADR-004 SUMMARY wording.
 		};
 
 		std::array<Field, VF_FIELD_COUNT> fields;
@@ -289,6 +291,16 @@ public:
 		const std::vector<size_t>& candidates,
 		const FlightPlanRow& row) const;
 	virtual std::string RouteOutput(const rapidjson::Value& constraints, const std::vector<std::string>& extracted_route, const std::string& dest, int rfl, bool req_lvl)const;
+	struct ExitPointDiagnostic
+	{
+		std::string point;
+		std::string summary;
+		std::string full;
+	};
+	// Describe the existing exit-check result without changing candidate validity.
+	std::vector<ExitPointDiagnostic> BuildExitPointDiagnostics_(
+		const rapidjson::Value& airport, const FlightPlanRow& row,
+		const rapidjson::Value& constraints, const std::vector<bool>& exit_validity) const;
 	virtual std::string ExitPointOutput(const rapidjson::Value& airport, std::vector<std::string> extracted_route)const;
 	virtual std::string DestinationOutput(const rapidjson::Value& airport, const std::string& dest)const;
 	//==============================================================

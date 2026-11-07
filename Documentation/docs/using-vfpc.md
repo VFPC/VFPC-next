@@ -23,17 +23,41 @@ VFR flight plans are not validated.
 
 ## Controller Scope
 
+### Using vFPC as an APP or CTR Sector Controller
+
+vFPC supports sector controllers reviewing departures from multiple airports.
+Recognised **APP** and **CTR** callsigns can validate IFR departures from the
+departure-active Runway Activity airports that fall within the position's
+configured UKCP coverage. You do not need to operate a separate airport-specific
+position for each departure airport.
+
+1. Connect using your recognised full controller callsign, including any sector
+   identifier, for example `SCO_CTR` or `SCO_SOL_CTR`.
+2. In EuroScope **Runway Activity**, enable the airport-level **DEP** selection
+   for each departure airport you want vFPC to review.
+3. Ensure each airport is covered by that position's UKCP mapping. vFPC excludes
+   selected airports outside that coverage and explains the exclusion.
+4. Ensure the individual flight has an assigned departure runway. Each eligible
+   flight is checked using its own origin airport's validation data.
+
+The airport-level DEP selection matters: selecting runway departure symbols
+alone, or making an arrival-only selection, does not select the airport for
+sector-controller departure validation. An airport appearing in the Departure
+List does not automatically put it in vFPC scope.
+
+For example, `SCO_SOL_CTR` can review selected departures from EGPH, EGPF and
+EGPK when those airports are within its configured coverage. Selecting EGLL
+does not add it to that sector's scope. An out-of-scope flight displays **OFF**;
+an eligible flight awaiting airport data or its own departure runway displays
+**PDG**.
+
+### Other Positions and Scope Rules
+
 vFPC matches the full controller callsign against UKCP controller-position data.
 For a recognised airport-specific DEL, GND or TWR position, it selects the mapped
 airport even when that airport is not departure-active in Runway Activity. A
 warning explains the missing Runway Activity selection; it does not remove the
 airport from scope.
-
-For APP and CTR positions, vFPC uses only departure-active Runway Activity
-airports listed in that position's UKCP `top_down` coverage. Airports outside
-that list are excluded from constraint loading and validation, with an
-explanation in the EuroScope message window and vFPC log. Arrival-only selection
-does not enable departure validation.
 
 For a callsign ending in `_OBS`, departure-active Runway Activity airports define
 the review scope without a UKCP filter. No airport is inferred from aircraft in
@@ -134,6 +158,75 @@ validation result.
 !!! note
     Validation details are displayed in the EuroScope message window only
     when **Show Checks (SUMMARY)** or **Show Checks (FULL)** is selected.
+
+## Exit Point Diagnostics and Warnings
+
+vFPC distinguishes the route explicitly filed in the flight plan from
+EuroScope's extracted waypoint list. The extracted list can include intermediate
+waypoints that are not written individually in the filed route, for example
+along an airway.
+
+Exit-point validation uses the extracted waypoint list and the departure
+airport's constraints. Route validation remains a separate check of the
+normalized filed route. Finding an exit in the extracted list does not by
+itself establish that the point is permitted for the filed departure or that
+all other route requirements have passed.
+
+### XIT for an Exit Point Failure
+
+When a known exit point is not permitted for the filed departure, **SUMMARY**
+identifies the point and departure. For example:
+
+> ALOTI not permitted via BPK
+
+**FULL** explains the failure and lists other departures only when supported
+by the airport's exit-point constraints. For example:
+
+> ALOTI is not a permitted exit point for the filed BPK departure. ALOTI is permitted via UMLAT or ULTIB departures.
+
+The alternative departures are an unordered list; their order does not indicate
+preference or priority. Exit-point advice does not establish that the complete
+flight plan would pass every other check via an alternative departure. Review
+the applicable route and procedures before making a change.
+
+If no known exit is identified, **SUMMARY** displays:
+
+> No known exit point identified
+
+**FULL** explains that no known exit was identified in the extracted waypoint
+list for the filed departure. This differs from a known point that is not
+permitted for that departure. Later checks may be reported as not checked
+because exit-point validation failed.
+
+### WRN for a Permitted Exit Missing from the Filed Route
+
+When an exit is permitted for the filed departure and appears in the extracted
+waypoint list but is not explicitly included in the filed route, the exit-point
+check passes and vFPC records a warning. If there is no higher-priority failure,
+the FPL column displays **WRN**.
+
+Example **SUMMARY**:
+
+> ALOTI absent from filed route
+
+Example **FULL** warning:
+
+> ALOTI is a permitted exit point for the filed departure and appears in EuroScope's extracted waypoint list, but is not explicitly included in the filed route.
+
+This warning is not an XIT failure. Review the filed route and EuroScope's
+interpretation rather than treating the warning alone as proof of an invalid
+route. The actual identified exit point is used in the message.
+
+### A Failure Takes Priority over WRN
+
+An existing validation failure retains its FPL code when the missing-filed-exit
+warning also applies. For example, **OER** remains displayed for an odd/even
+level failure even if a permitted exit is absent from the filed route.
+
+Select **Show Checks (FULL)** and review **Warnings** to see the warning
+alongside the failure. SUMMARY normally explains the principal failure rather
+than displaying every warning. No additional unsolicited console messages are
+generated for these exit diagnostics; use Show Checks to request the details.
 
 ## Toggle Override
 
