@@ -29,6 +29,10 @@ This document records significant changes in released versions and planned updat
 - Flights awaiting a departure runway reuse unchanged pending results instead
   of repeatedly attempting validation on tag callbacks. Assigning a runway or
   publishing airport data still triggers the appropriate revalidation.
+- Changed flight-plan details are logged, and validation-result messages and
+  duplicate suppression include the requested flight level (RFL). User-reported
+  Sweatbox verification of FL230 -> FL370 -> FL350 recorded each change, including
+  OER -> OER, with no duplicate entries in the supplied log.
 - Out-of-scope flights retain OFF reporting and the scope explanation in cached
   results, logs, SUMMARY and FULL instead of being reported as VFR.
 
@@ -59,6 +63,7 @@ This document records significant changes in released versions and planned updat
 - vFPC remains a 32-bit EuroScope plugin. Sector support reviews departure flight
   plans; it does not validate aircraft progress through an en-route sector.
 - Public version: `4.1.0`. Windows DLL version: `4.1.0.0`.
+- The MATCH/UTFAV even-level constraint remains a separate unresolved issue.
 
 ## 4.0.0.0 - 11-10-2026
 

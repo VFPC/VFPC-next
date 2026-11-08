@@ -4522,6 +4522,19 @@ void CVFPCPlugin::ProcessTrackedFlightPlan_(const FlightPlanRow& row)
 				}
 
 				it->second.last_row = row;
+				LOG_INFO(
+					"Flight plan changed: callsign='{}' origin='{}' departure_rwy='{}' destination='{}' eobt='{}' sid='{}' route='{}' rfl={} aircraft='{}' type='{}'",
+					row.callsign,
+					row.origin,
+					row.departure_rwy,
+					row.destination,
+					row.eobt,
+					row.sid,
+					row.route,
+					row.rfl,
+					row.aircraft_type,
+					row.engine_type
+				);
 				should_validate = true;
 			}
 			// A runway-pending result remains valid for this fingerprint.
@@ -4549,6 +4562,7 @@ void CVFPCPlugin::StoreAndLogValidationResult_(const FlightPlanRow& row,
 	// Use one fingerprint and log format for immediate and delayed validation.
 	const std::string result_fingerprint =
 		result.itemString + "|" +
+		std::to_string(row.rfl) + "|" +
 		result.fields[VF_STATUS].summary + "|" +
 		result.fields[VF_SID].summary + "|" +
 		result.fields[VF_DESTINATION].summary + "|" +
@@ -4572,8 +4586,9 @@ void CVFPCPlugin::StoreAndLogValidationResult_(const FlightPlanRow& row,
 		it->second.last_logged_result_fingerprint != result_fingerprint)
 	{
 		LOG_INFO(
-			"Validation result: callsign='{}' result='{}' status='{}' sid='{}' dest='{}' exit='{}' route='{}' level='{}' odd_even='{}' restrictions='{}' warnings='{}' bans='{}'",
+			"Validation result: callsign='{}' rfl='{}' result='{}' status='{}' sid='{}' dest='{}' exit='{}' route='{}' level='{}' odd_even='{}' restrictions='{}' warnings='{}' bans='{}'",
 			row.callsign,
+			row.rfl,
 			result.itemString,
 			result.fields[VF_STATUS].summary,
 			result.fields[VF_SID].summary,
