@@ -23,68 +23,41 @@ VFR flight plans are not validated.
 
 ## Controller Scope
 
-### Using vFPC as an APP or CTR Sector Controller
+vFPC validates departures from all airports selected as departure-active in
+EuroScope Runway Activity, regardless of controller callsign or position.
+Multiple airports can be selected.
 
-vFPC supports sector controllers reviewing departures from multiple airports.
-Recognised **APP** and **CTR** callsigns can validate IFR departures from the
-departure-active Runway Activity airports that fall within the position's
-configured UKCP coverage. You do not need to operate a separate airport-specific
-position for each departure airport.
-
-1. Connect using your recognised full controller callsign, including any sector
-   identifier, for example `SCO_CTR` or `SCO_SOL_CTR`.
-2. In EuroScope **Runway Activity**, enable the airport-level **DEP** selection
-   for each departure airport you want vFPC to review.
-3. Ensure each airport is covered by that position's UKCP mapping. vFPC excludes
-   selected airports outside that coverage and explains the exclusion.
-4. Ensure the individual flight has an assigned departure runway. Each eligible
-   flight is checked using its own origin airport's validation data.
+1. Connect to EuroScope.
+2. In **Runway Activity**, enable the airport-level **DEP** selection for each
+   departure airport you want vFPC to review.
+3. Ensure each flight has an assigned departure runway. Each eligible flight is
+   checked using its own origin airport's validation data.
 
 The airport-level DEP selection matters: selecting runway departure symbols
 alone, or making an arrival-only selection, does not select the airport for
-sector-controller departure validation. An airport appearing in the Departure
-List does not automatically put it in vFPC scope.
+departure validation. An airport appearing in the Departure List does not
+automatically put it in vFPC scope. Local DEL, GND and TWR positions must also
+select their airport's DEP flag.
 
-For example, `SCO_SOL_CTR` can review selected departures from EGPH, EGPF and
-EGPK when those airports are within its configured coverage. Selecting EGLL
-does not add it to that sector's scope. An out-of-scope flight displays **OFF**;
-an eligible flight awaiting airport data or its own departure runway displays
-**PDG**.
-
-### Other Positions and Scope Rules
-
-vFPC matches the full controller callsign against UKCP controller-position data.
-For a recognised airport-specific DEL, GND or TWR position, it selects the mapped
-airport even when that airport is not departure-active in Runway Activity. A
-warning explains the missing Runway Activity selection; it does not remove the
-airport from scope.
-
-For a callsign ending in `_OBS`, departure-active Runway Activity airports define
-the review scope without a UKCP filter. No airport is inferred from aircraft in
-the Departure List. UKCP coverage describes configured position coverage; it
-does not determine which other controllers are online or resolve delegation.
-
-Unrecognised operational positions, unsupported suffixes and empty UKCP coverage
-pause validation. Flights outside the selected scope display `OFF`. In-scope
-flights still wait for airport data and their own assigned departure runway;
-these pending states display `PDG`.
+vFPC does not filter selections by UKCP coverage or determine operational
+responsibility. A selected airport is in scope even if another controller is
+responsible for it. Flights outside the selected scope display **OFF**;
+in-scope flights waiting for airport data or their own assigned departure runway
+display **PDG**. vFPC requires an assigned runway but does not check whether that
+individual runway is active.
 
 ### Support Commands - vFPC Team Advice Only
 
 These commands are for troubleshooting only. Use them only when advised by the
 vFPC team; they are not required for normal setup or operation.
 
-- `.vfpc scope` displays the selected airports, selection explanation and UKCP
-  lookup status.
-- `.vfpc scope reload` requests fresh UKCP position data. It does not change the
-  airport constraint source or EuroScope Runway Activity settings.
+- `.vfpc scope` displays the selected airports and selection explanation.
+- `.vfpc scope reload` refreshes the Runway Activity selection without changing
+  the airport data source or EuroScope settings.
 
-UKCP data is held in memory for the connected session and loaded on connection.
-A failed refresh retains valid session data. With no usable lookup, operational
-validation pauses; OBS selection remains available. There is no automatic retry
-loop. If a lookup failure persists, contact the vFPC team for advice. Disconnecting clears the scope
-cache. A failure to read Runway Activity pauses APP/CTR/OBS selection; saving the
-Runway Activity dialog requests a new scan. Fixed local scope remains eligible.
+If Runway Activity cannot be read, validation pauses rather than using a partial
+selection. Saving the Runway Activity dialog requests an immediate scan. vFPC
+also checks periodically for changes made without the dialog, such as priming.
 
 ## The FPL Column
 

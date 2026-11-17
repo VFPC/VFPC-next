@@ -12,8 +12,9 @@ The preceding read-only audit found no ADR files, authoritative register or esta
 |---|---|---|---|
 | [ADR-001](ADR-001.md) | Departure Airport Selection and Validation Scope | Superseded by ADR-003 | Working source contains multi-airport Runway Activity selection; agreed facility/callsign policy not yet implemented; multi-airport behaviour not yet confirmed through live EuroScope testing |
 | [ADR-002](ADR-002.md) | UKCP Advisory Validation of Airport Selections | Superseded by ADR-003 | No airport-selection advisory integration identified during drafting; not confirmed implemented or tested |
-| [ADR-003](ADR-003.md) | Controller Scope from UKCP Position Coverage | Accepted, 2 November 2026 | Working source builds passed; normal scope, simulated failure/recovery and OFF/VFR reporting Sweatbox checks passed; see verification record for remaining limits |
+| [ADR-003](ADR-003.md) | Controller Scope from UKCP Position Coverage | Superseded by ADR-005 | Working source builds passed; normal scope, simulated failure/recovery and OFF/VFR reporting Sweatbox checks passed; see verification record for remaining limits |
 | [ADR-004](ADR-004.md) | Exit Point Validation Diagnostics and Warnings | Accepted, 5 November 2026 | Working source implemented; Debug/Release Win32 builds, isolated checks and scoped SB01–SB07 Sweatbox acceptance passed, 6 November 2026; release not published |
+| [ADR-005](ADR-005.md) | Validation Scope for Controller Departure Lists | Accepted, 17 November 2026 | Scope changes present in working source; departure-list equivalence and priming behavior require EuroScope verification |
 
 ## Historical notes for ADR-001 and ADR-002
 
@@ -31,6 +32,7 @@ These are the first two records in this register. No titles or decisions are inf
 - **Agreed:** Explicitly accepted by the project owner.
 - **Proposed:** Suggested approach awaiting approval.
 - **Unresolved:** Requires clarification or further investigation.
+- **Superseded:** This ADR has been replaced by a newer ADR
 
 An Accepted ADR can contain explicitly labelled proposals and unresolved implementation questions. Those sections do not become accepted implementation choices merely because the architectural decision is Accepted.
 
@@ -56,6 +58,6 @@ This initial documentation change does not update those documents or MkDocs navi
 
 ## Current authority
 
-[ADR-003](ADR-003.md) supersedes the selection and advisory-only policies above following the project owner's explicit agreement to UKCP filtering and subsequent authorisation of source changes. Historical statements about advisory-only UKCP use do not apply to the new policy. UKCP remains configured coverage, not proof of live operational responsibility.
+[ADR-005](ADR-005.md) supersedes [ADR-003](ADR-003.md)'s UKCP-based selection policy. It records the owner's decision to check eligible flights in the controller's departure list without callsign or UKCP filtering. The working implementation's airport-flag equivalence, including priming, remains to be verified.
 
 [ADR-004](ADR-004.md) records the accepted exit-point diagnostics and warning requirements. Working-source implementation, build, isolated-check and completed scoped Sweatbox evidence is recorded in the ADR. Release publication remains separate. It does not supersede the controller-scope decision in ADR-003.

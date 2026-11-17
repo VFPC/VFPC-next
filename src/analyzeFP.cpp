@@ -36,15 +36,10 @@ namespace
 	vector<int> timedata;
 	vector<int> lastupdate;
 
-	/***********************************************************
-	* The following are used with the state machine to track the
-	* state of the EuroScope connection and whether a local
-	* controller callsign is available for scope resolution.
-	***********************************************************/
+	// Track connection transitions independently of controller callsign.
 	enum class SessionState {
 		Disconnected,
-		Connected_NoCallsign,
-		Connected_CallsignReady
+		Connected
 	};
 
 	SessionState session_state_{ SessionState::Disconnected };
@@ -499,19 +494,12 @@ CVFPCPlugin::~CVFPCPlugin()
 	if (airport_thread_.joinable())
 		airport_thread_.request_stop();
 
-	LOG_DEBUG("Stopping controller scope worker thread ....");
-	if (controller_scope_thread_.joinable())
-		controller_scope_thread_.request_stop();
-
 	// Request all stops before waiting. Workers must finish while their
 	// state and logging are still available, and before snapshots are released.
 	if (airport_thread_.joinable())
 		airport_thread_.join();
 	if (version_thread_.joinable())
 		version_thread_.join();
-	if (controller_scope_thread_.joinable())
-		controller_scope_thread_.join();
-
 	// No UI flush during unload. Workers are joined while queue/logging still live.
 	worker_notifications_.Discard();
 	try {
@@ -4112,7 +4100,7 @@ vector<vector<string>> CVFPCPlugin::ReturnWithBoth(vector<vector<string>>& out,
 	return out;
 }
 
-// 8c. Controller-scope and active-airport session helpers (ADR-003)
+// 8c. Active-airport session helpers
 void CVFPCPlugin::OnAirportRunwayActivityChanged()
 {
 	if (!is_initialised || GetConnectionType() == EuroScopePlugIn::CONNECTION_TYPE_NO) return;
@@ -4143,161 +4131,20 @@ CVFPCPlugin::AirportSnapshotFor_(const std::string& airport) const
 	return it == airport_snapshots_.end() ? nullptr : it->second;
 }
 
-// Read only plain identity values in the host callback. IsValid() alone does not
-// establish that a local callsign is ready; facility/rating cannot define coverage.
-bool CVFPCPlugin::UpdateControllerIdentity_()
-{
-	ControllerIdentity next;
-	if (GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_NO) {
-		const auto myself = ControllerMyself();
-		if (myself.IsValid()) {
-			const char* callsign = myself.GetCallsign();
-			next.callsign = normalize_callsign(callsign ? callsign : "");
-			next.valid = !next.callsign.empty();
-			next.facility = myself.GetFacility();
-			next.is_controller = myself.IsController();
-		}
-	}
-	if (next == controller_identity_) return false;
-	controller_identity_ = std::move(next);
-	LOG_INFO("Controller identity: callsign='{}' valid={} facility={} server_controller={}",
-		controller_identity_.callsign, controller_identity_.valid,
-		controller_identity_.facility, controller_identity_.is_controller);
-	return true;
-}
-
-// Worker-only HTTP/schema validation. Build a complete replacement map: a bad
-// record, duplicate callsign or malformed airport must never widen cached scope.
-// Empty top_down arrays are valid data and deliberately select no airports.
-bool CVFPCPlugin::LoadControllerScopes_(std::stop_token st,
-	ControllerScopes& positions, std::string& error)
-{
-	constexpr const char* url = "https://ukcp.vatsim.uk/api/controller-positions-v2";
-	std::string body;
-	if (!webCall(url, body, st)) {
-		error = st.stop_requested() ? "Request cancelled." : "UKCP request failed; see the vFPC log.";
-		return false;
-	}
-	rapidjson::Document data;
-	data.Parse(body.data(), body.size());
-	if (data.HasParseError() || !data.IsArray() || data.Empty()) {
-		error = "UKCP response must be a nonempty JSON array of controller positions.";
-		return false;
-	}
-	ControllerScopes replacement;
-	for (const auto& position : data.GetArray()) {
-		if (st.stop_requested()) { error = "Request cancelled."; return false; }
-		const auto* callsign_value = FindMemberValue(position, "callsign");
-		const auto* airports_value = FindArrayMember(position, "top_down");
-		if (!callsign_value || !callsign_value->IsString() || !airports_value) {
-			error = "UKCP position has no valid callsign or top_down array.";
-			return false;
-		}
-		const std::string callsign = normalize_callsign(std::string(
-			callsign_value->GetString(), callsign_value->GetStringLength()));
-		if (callsign.empty() || callsign.find('\0') != std::string::npos ||
-			callsign.find_first_of(" \t\r\n") != std::string::npos) {
-			error = "UKCP position has a malformed callsign.";
-			return false;
-		}
-		std::vector<std::string> airports;
-		for (const auto& value : airports_value->GetArray()) {
-			if (!value.IsString()) { error = "UKCP top_down contains a non-string airport."; return false; }
-			const std::string airport = norm_icao(std::string(value.GetString(), value.GetStringLength()));
-			if (airport.size() != 4 || airport.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ") != std::string::npos) {
-				error = "UKCP top_down contains an invalid airport ICAO.";
-				return false;
-			}
-			airports.push_back(airport);
-		}
-		std::sort(airports.begin(), airports.end());
-		airports.erase(std::unique(airports.begin(), airports.end()), airports.end());
-		if (!replacement.emplace(callsign, std::move(airports)).second) {
-			error = "UKCP response contains duplicate controller callsigns.";
-			return false;
-		}
-	}
-	positions = std::move(replacement);
-	return true;
-}
-
-// Host coordinator for the session cache. The worker never calls EuroScope and
-// hands off through one mutex-protected slot. Inflight stays set until consumed,
-// so a later request cannot overwrite an unread result. Failed refreshes retain
-// valid data; reconnect starts a new cache generation. No automatic retry loop.
-void CVFPCPlugin::ServiceControllerScopeLookup_()
-{
-	std::optional<ControllerScopeLoadResult> completed;
-	{
-		std::lock_guard lock(controller_scope_pending_mtx_);
-		completed.swap(controller_scope_pending_);
-	}
-	if (completed) {
-		controller_scope_load_inflight_ = false;
-		if (completed->generation == controller_scope_generation_) {
-			if (completed->success) {
-				controller_scopes_ = std::move(completed->positions);
-				controller_scopes_available_ = true;
-				controller_scope_last_error_.clear();
-				LOG_INFO("UKCP controller scope cache published: {} positions", controller_scopes_.size());
-				SendToConsole(vfpc::urgent, "UKCP controller scope data loaded for {} positions.", controller_scopes_.size());
-			}
-			else {
-				controller_scope_last_error_ = completed->error;
-				LOG_WARN("UKCP controller scope load failed: {}; cached_data_retained={}",
-					completed->error, controller_scopes_available_);
-				SendToConsole(vfpc::urgent, "UKCP scope lookup failed. {} {} If the problem persists, contact the vFPC team for advice.",
-					completed->error, controller_scopes_available_
-					? "Existing session scope data retained."
-					: "Operational validation is paused; OBS Runway Activity selection remains available.");
-			}
-			RefreshDepartureAirports_();
-		}
-		else LOG_DEBUG("Discarding UKCP scope result for superseded session {}", completed->generation);
-	}
-	if (!controller_scope_reload_requested_ || controller_scope_load_inflight_) return;
-	controller_scope_reload_requested_ = false;
-	const auto generation = controller_scope_generation_;
-	controller_scope_load_inflight_ = true;
-	try {
-		controller_scope_thread_ = std::jthread([this, generation](std::stop_token st) {
-			ControllerScopeLoadResult result;
-			result.generation = generation;
-			try {
-				result.success = LoadControllerScopes_(st, result.positions, result.error);
-			}
-			catch (const std::exception& ex) { result.error = ex.what(); }
-			catch (...) { result.error = "Unexpected error reading UKCP controller scope data."; }
-			std::lock_guard lock(controller_scope_pending_mtx_);
-			controller_scope_pending_ = std::move(result);
-		});
-	}
-	catch (const std::exception& ex) {
-		controller_scope_load_inflight_ = false;
-		controller_scope_last_error_ = ex.what();
-		LOG_ERROR("Unable to start UKCP scope worker: {}", ex.what());
-		SendToConsole(vfpc::urgent, "Unable to start UKCP scope lookup. If the problem persists, contact the vFPC team for advice.");
-		RefreshDepartureAirports_();
-	}
-}
-
-// Safe copy for validation/detail output; the message explains selection rather
-// than claiming that UKCP represents live staffing, delegation or ownership.
+// Safe copy for validation/detail output.
 std::string CVFPCPlugin::ControllerScopeDescription_() const
 {
 	std::lock_guard<std::mutex> g(active_mtx_);
 	return controller_scope_description_;
 }
 
-// ADR-003: separate configured position coverage, user airport selection, and
-// each aircraft's assigned runway. OBS deliberately bypasses the UKCP filter.
-// Preserve the existing airport snapshot/generation pipeline after resolution.
-// These coordinator methods run in host callbacks, as does the existing timer.
+// Read departure-active airports in the host callback and publish a complete scope.
 void CVFPCPlugin::RefreshDepartureAirports_()
 {
-	UpdateControllerIdentity_();
+	last_departure_scan_ = std::chrono::steady_clock::now();
 	std::vector<std::string> runway_airports;
 	bool runway_activity_read = true;
+	std::string scan_error;
 	try {
 		SelectActiveSectorfile();
 		for (auto airport = SectorFileElementSelectFirst(EuroScopePlugIn::SECTOR_ELEMENT_AIRPORT);
@@ -4305,104 +4152,26 @@ void CVFPCPlugin::RefreshDepartureAirports_()
 			airport = SectorFileElementSelectNext(airport, EuroScopePlugIn::SECTOR_ELEMENT_AIRPORT)) {
 			const char* name = airport.GetName();
 			const bool departure = airport.IsElementActive(true);
-			const bool arrival = airport.IsElementActive(false);
 			if (departure && name && *name) runway_airports.push_back(norm_icao(name));
-			if (departure || arrival) LOG_INFO("Runway Activity airport='{}' departure_active={} arrival_active={}",
-				name ? name : "", departure, arrival);
 		}
 	}
 	catch (const std::exception& ex) {
 		runway_activity_read = false;
-		LOG_ERROR("Runway Activity airport scan failed: {}", ex.what());
+		scan_error = ex.what();
 	}
 	catch (...) {
 		runway_activity_read = false;
-		LOG_ERROR("Runway Activity airport scan failed: unknown exception");
+		scan_error = "unknown exception";
 	}
-	// Never use a partial scan. Fixed local scope can still be resolved from UKCP.
+	// Never use a partial scan.
 	if (!runway_activity_read) runway_airports.clear();
 	std::sort(runway_airports.begin(), runway_airports.end());
 	runway_airports.erase(std::unique(runway_airports.begin(), runway_airports.end()), runway_airports.end());
 
-	std::vector<std::string> selected, excluded;
-	const auto& callsign = controller_identity_.callsign;
-	const auto separator = callsign.rfind('_');
-	const std::string suffix = separator == std::string::npos ? "" : callsign.substr(separator + 1);
-	std::string description;
-	if (!controller_identity_.valid) {
-		description = "Controller identity is not ready; validation paused.";
-	}
-	else if (suffix == "OBS") {
-		// Facility OBS values and simulator server permissions are not documented
-		// by this SDK. Neither rating nor IsController()==false identifies an OBS.
-		selected = runway_airports;
-		description = runway_activity_read
-			? fmt::format("{}: observer review scope from departure Runway Activity.", callsign)
-			: fmt::format("{}: unable to read Runway Activity; observer validation paused.", callsign);
-	}
-	else if (!controller_scopes_available_) {
-		description = controller_scope_load_inflight_ || controller_scope_reload_requested_
-			? fmt::format("{}: UKCP controller scope data is loading; operational validation paused.", callsign)
-			: fmt::format("{}: UKCP controller scope data unavailable; validation paused. If the problem persists, contact the vFPC team for advice.", callsign);
-	}
-	else {
-		auto position = controller_scopes_.find(callsign);
-		// UK Division Policy 2.2.d: relief adds one underscore immediately
-		// before the facility suffix. Preserve sector identifiers and honour
-		// exact records, including empty or inconsistent coverage.
-		if (position == controller_scopes_.end() && separator >= 2 && separator != std::string::npos
-			&& callsign[separator - 1] == '_' && callsign[separator - 2] != '_'
-			&& (suffix == "DEL" || suffix == "GND" || suffix == "TWR" || suffix == "APP" || suffix == "CTR")) {
-			std::string base_callsign = callsign;
-			base_callsign.erase(separator, 1);
-			position = controller_scopes_.find(base_callsign);
-		}
-		// Owner-authorised local mentor convention: ICAO_M_DEL/GND/TWR.
-		// Only resolve a four-letter airport prefix; do not strip identifiers
-		// from shared approach or area positions. Coverage is checked below.
-		if (position == controller_scopes_.end() && separator == 6
-			&& callsign.compare(4, 3, "_M_") == 0
-			&& callsign.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ") == 4
-			&& (suffix == "DEL" || suffix == "GND" || suffix == "TWR")) {
-			position = controller_scopes_.find(callsign.substr(0, 4) + "_" + suffix);
-		}
-		if (position == controller_scopes_.end()) {
-			description = fmt::format("{}: no UKCP position mapping for callsign or supported relief/mentor variant; validation paused.", callsign);
-		}
-		else if (position->second.empty()) {
-			description = fmt::format("{}: UKCP top_down is empty; validation paused.", callsign);
-		}
-		else if (suffix == "DEL" || suffix == "GND" || suffix == "TWR") {
-			const std::string airport = callsign.substr(0, callsign.find('_'));
-			// Require agreement between an airport-shaped prefix and the resolved UKCP
-			// record. Never invent coverage or choose the first of several airports.
-			if (airport.size() == 4 && position->second.size() == 1 && position->second.front() == airport) {
-				selected = position->second;
-				description = fmt::format("{}: airport-specific scope {} from UKCP, independent of Runway Activity.", callsign, airport);
-				if (!runway_activity_read)
-					description += " Warning: unable to read Runway Activity; scope is retained.";
-				else if (!std::binary_search(runway_airports.begin(), runway_airports.end(), airport))
-					description += " Warning: airport is not departure-active in Runway Activity; scope is retained.";
-			}
-			else description = fmt::format("{}: UKCP mapping does not identify one matching local airport; validation paused.", callsign);
-		}
-		else if (suffix == "APP" || suffix == "CTR") {
-			for (const auto& airport : runway_airports) {
-				if (std::binary_search(position->second.begin(), position->second.end(), airport)) selected.push_back(airport);
-				else excluded.push_back(airport);
-			}
-			description = fmt::format("{}: departure Runway Activity filtered by UKCP top_down.", callsign);
-			if (!runway_activity_read) description += " Unable to read Runway Activity; validation paused.";
-			if (!excluded.empty()) description += fmt::format(" Excluded outside configured coverage: {}. Check Runway Activity.", fmt::join(excluded, ", "));
-		}
-		else description = fmt::format("{}: unsupported position suffix; validation paused.", callsign);
-		if (position != controller_scopes_.end() && position->first != callsign)
-			description += fmt::format(" Callsign variant resolved to UKCP position {}.", position->first);
-	}
-	// Fixed scope comes from a sorted UKCP list; filtered/OBS scope from a sorted
-	// sector scan. Keep sorting explicit because readers use binary_search.
-	std::sort(selected.begin(), selected.end());
-	selected.erase(std::unique(selected.begin(), selected.end()), selected.end());
+	std::vector<std::string> selected = std::move(runway_airports);
+	std::string description = runway_activity_read
+		? "Validation scope from departure Runway Activity."
+		: fmt::format("Unable to read Runway Activity; validation paused: {}.", scan_error);
 	description += selected.empty() ? " No airports selected for validation."
 		: fmt::format(" Selected airports: {}.", fmt::join(selected, ", "));
 	bool selection_changed, description_changed;
@@ -4422,7 +4191,8 @@ void CVFPCPlugin::RefreshDepartureAirports_()
 	}
 	// Diagnostics are emitted only when the effective scope or explanation changes.
 	if (description_changed) {
-		LOG_INFO("Controller scope: {}", description);
+		if (runway_activity_read) LOG_INFO("Controller scope: {}", description);
+		else LOG_ERROR("Controller scope: {}", description);
 		SendToConsole(vfpc::urgent, "{}", description);
 	}
 	if (!selection_changed) {
@@ -6816,24 +6586,18 @@ void CVFPCPlugin::ShowConfigStatus_()
 //Handles console commands
 bool CVFPCPlugin::OnCompileCommand(const char* sCommandLine) {
 	try {
-		// Available in Release too: a transient UKCP failure must be recoverable
-		// without changing the airport-data source or reconnecting EuroScope.
 		const std::string command = normalize_callsign(sCommandLine ? sCommandLine : "");
 		if (command == ".VFPC SCOPE RELOAD") {
 			if (GetConnectionType() == EuroScopePlugIn::CONNECTION_TYPE_NO) {
-				SendToConsole(vfpc::urgent, "Connect to EuroScope before reloading controller scope.");
+				SendToConsole(vfpc::urgent, "Connect to EuroScope before refreshing Runway Activity scope.");
 				return true;
 			}
-			controller_scope_reload_requested_ = true;
-			SendToConsole(vfpc::urgent, "UKCP controller scope reload requested; existing valid scope data is retained until replacement succeeds.");
+			SendToConsole(vfpc::urgent, "Refreshing Runway Activity scope.");
+			RefreshDepartureAirports_();
 			return true;
 		}
 		if (command == ".VFPC SCOPE") {
 			SendToConsole("{}", ControllerScopeDescription_());
-			SendToConsole("UKCP scope cache: {}; request {}.",
-				controller_scopes_available_ ? "available for this session" : "not available",
-				controller_scope_load_inflight_ || controller_scope_reload_requested_ ? "pending" : "idle");
-			if (!controller_scope_last_error_.empty()) SendToConsole("Last UKCP error: {}", controller_scope_last_error_);
 			return true;
 		}
 #ifdef _DEBUG
@@ -6960,15 +6724,6 @@ void CVFPCPlugin::OnTimer(int Counter)
 		if (!connected) {
 			if (!disconnect_cleanup_done_) {
 				disconnect_cleanup_done_ = true;
-				// A cancelled lookup may complete after reconnect. Its generation must
-				// never repopulate the new session's cache or affect airport selection.
-				++controller_scope_generation_;
-				if (controller_scope_thread_.joinable()) controller_scope_thread_.request_stop();
-				controller_scope_reload_requested_ = false;
-				controller_scopes_.clear();
-				controller_scopes_available_ = false;
-				controller_scope_last_error_.clear();
-				controller_identity_ = {};
 				airport_generation_.fetch_add(1, std::memory_order_acq_rel);
 				if (airport_thread_.joinable()) airport_thread_.request_stop();
 				airport_reload_requested_.store(false, std::memory_order_release);
@@ -6986,18 +6741,18 @@ void CVFPCPlugin::OnTimer(int Counter)
 			return;
 		}
 		if (session_state_ == SessionState::Disconnected) {
-			session_state_ = SessionState::Connected_NoCallsign;
+			session_state_ = SessionState::Connected;
 			disconnect_cleanup_done_ = false;
 			LOG_INFO("User connected to EuroScope...");
-			controller_scope_reload_requested_ = true;
 		}
-		// Resolve identity and UKCP scope before accepting completed airport data.
-		// In particular, a callsign change must invalidate newly excluded airports.
-		const bool identity_changed = UpdateControllerIdentity_();
-		session_state_ = controller_identity_.valid
-			? SessionState::Connected_CallsignReady : SessionState::Connected_NoCallsign;
-		ServiceControllerScopeLookup_();
-		if (identity_changed || !departure_selection_initialised_) RefreshDepartureAirports_();
+		// Priming can change activity without the dialog callback.
+		// Refresh before accepting completed airport data.
+		const auto now = std::chrono::steady_clock::now();
+		if (!departure_selection_initialised_ ||
+			now - last_departure_scan_ >= std::chrono::seconds(5))
+		{
+			RefreshDepartureAirports_();
+		}
 
 		if (pending_ready_.load(std::memory_order_acquire)) {
 			AirportSnapshots completed;

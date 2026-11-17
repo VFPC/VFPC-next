@@ -27,7 +27,7 @@ A flight plan may not be validated if:
 - A departure runway has not yet been assigned.
 - Validation checks have been disabled using **Toggle Checks**.
 - The departure airport is outside the current controller scope.
-- For APP/CTR, the airport is not departure-active in Runway Activity or is outside the position's configured UKCP coverage.
+- The airport's DEP flag is not selected in Runway Activity, or Runway Activity could not be read.
 - The required airport validation data is not available.
 
 The code displayed in the **FPL** column may provide more information. See the

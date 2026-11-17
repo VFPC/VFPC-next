@@ -787,24 +787,6 @@ private:
 	//==========================================================
 	// 17. Controller scope and active airport helpers
 	//==========================================================
-	// Copy SDK identity inside the host callback; SDK controller handles cannot be cached.
-	struct ControllerIdentity {
-		bool valid = false;
-		std::string callsign;
-		int facility = -1;
-		bool is_controller = false;
-		bool operator==(const ControllerIdentity&) const = default;
-	};
-	using ControllerScopes = std::unordered_map<std::string, std::vector<std::string>>;
-	struct ControllerScopeLoadResult {
-		ControllerScopes positions;
-		std::string error;
-		unsigned long long generation = 0;
-		bool success = false;
-	};
-	bool UpdateControllerIdentity_();
-	bool LoadControllerScopes_(std::stop_token st, ControllerScopes& positions, std::string& error);
-	void ServiceControllerScopeLookup_();
 	void RefreshDepartureAirports_();
 	std::string ControllerScopeDescription_() const;
 	bool IsDepartureAirportSelected_(const std::string& airport) const;
@@ -889,20 +871,9 @@ private:
 	mutable std::mutex active_mtx_;
 	std::vector<std::string> departure_airports_; // Sorted, unique ICAOs.
 	bool departure_selection_initialised_ = false;
+	std::chrono::steady_clock::time_point last_departure_scan_{};
 
-	// Host-callback-owned identity/cache. Only the pending result crosses the worker
-	// boundary, under its mutex. Scope publication precedes airport publication.
-	ControllerIdentity controller_identity_;
-	ControllerScopes controller_scopes_;
-	bool controller_scopes_available_ = false;
-	bool controller_scope_reload_requested_ = false;
-	bool controller_scope_load_inflight_ = false;
-	unsigned long long controller_scope_generation_ = 0;
-	std::string controller_scope_last_error_;
 	std::string controller_scope_description_ = "Controller scope has not been resolved."; // active_mtx_
-	std::jthread controller_scope_thread_;
-	std::mutex controller_scope_pending_mtx_;
-	std::optional<ControllerScopeLoadResult> controller_scope_pending_;
 
 	bool disconnect_cleanup_done_ = false;
 
