@@ -2,7 +2,7 @@
 
 This document records significant changes in released versions and planned updates to vFPC.
 
-## Unreleased
+## 4.1.2 - 23-11-2026
 
 ### Changed
 

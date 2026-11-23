@@ -12,7 +12,7 @@
 
 #define VFPC_VERSION_MAJOR 4
 #define VFPC_VERSION_MINOR 1
-#define VFPC_VERSION_PATCH 1
+#define VFPC_VERSION_PATCH 2
 #define VFPC_VERSION_BUILD 0
 
 // Set to 1 for beta/RC builds, 0 for a normal release.

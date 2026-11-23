@@ -1,8 +1,8 @@
 {
-  "version": "4.1.0",
-  "development_version": "4.1.0",
+  "version": "4.1.2",
+  "development_version": "4.1.2",
   "status": "RELEASE",
-  "review_date": "7 November 2026",
+  "review_date": "23 November 2026",
   "chapters": [
     "index.md",
     "installation.md",
@@ -11,5 +11,5 @@
     "troubleshooting.md",
     "reporting-issues.md"
   ],
-  "pdf_filename": "vFPC-User-Guide-v4.1.0.pdf"
+  "pdf_filename": "vFPC-User-Guide-v4.1.2.pdf"
 }
